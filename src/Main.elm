@@ -1,15 +1,15 @@
-module Main exposing (..)
+module Main exposing (Days, Model, Msg(..), Task, formInput, init, main, subscriptions, taskDateFormatter, update, view, viewTask)
 
 import Browser
-import Html exposing (..)
-import Html.Events as Events
-import Html.Attributes as Attributes
-import Time
-import Iso8601
-import Dict
 import DateFormat
-import Task
 import Debug
+import Dict
+import Html exposing (..)
+import Html.Attributes as Attributes
+import Html.Events as Events
+import Iso8601
+import Task
+import Time
 
 
 main =
@@ -52,8 +52,13 @@ init : () -> ( Model, Cmd Msg )
 init _ =
     ( Model
         [ Task "Laundry" "Don't forget the rags!" 7 (Time.millisToPosix 999999) ]
-        "" "" "" "" Time.utc (Time.millisToPosix 0)
-    , Task.perform UpdateTimeNow (Task.map2 (\zone posix -> (zone, posix)) Time.here Time.now)
+        ""
+        ""
+        ""
+        ""
+        Time.utc
+        (Time.millisToPosix 0)
+    , Task.perform UpdateTimeNow (Task.map2 (\zone posix -> ( zone, posix )) Time.here Time.now)
     )
 
 
@@ -62,32 +67,62 @@ init _ =
 
 
 type Msg
-    = AddTask (Maybe Task)
+    = AddTask
     | InputName String
     | InputDescription String
     | InputRegularity String
     | InputStartDate String
-    | UpdateTimeNow (Time.Zone, Time.Posix)
+    | UpdateTimeNow ( Time.Zone, Time.Posix )
+
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        AddTask maybeTask ->
-            case maybeTask of
+        AddTask ->
+            case makeTask model of
                 Just task ->
-                    ( { model | tasks = task :: model.tasks }, Cmd.none )
+                    ( resetInputs { model | tasks = task :: model.tasks }, Cmd.none )
+
                 Nothing ->
                     ( model, Cmd.none )
+
         InputName name ->
             ( { model | inputName = name }, Cmd.none )
+
         InputDescription description ->
             ( { model | inputDescription = description }, Cmd.none )
+
         InputRegularity regularity ->
             ( { model | inputRegularity = regularity }, Cmd.none )
+
         InputStartDate startDate ->
             ( { model | inputStartDate = startDate }, Cmd.none )
-        UpdateTimeNow (zone, posix) ->
+
+        UpdateTimeNow ( zone, posix ) ->
             ( { model | timeZone = zone, timeNow = posix }, Cmd.none )
+
+
+makeTask : Model -> Maybe Task
+makeTask model =
+    let
+        name =
+            Just model.inputName
+
+        description =
+            Just model.inputDescription
+
+        regularity =
+            String.toInt model.inputRegularity
+
+        startDate =
+            Result.toMaybe <| Iso8601.toTime <| model.inputStartDate ++ "T00:00:00Z"
+
+    in 
+        Maybe.map4 Task name description regularity startDate
+
+resetInputs : Model -> Model
+resetInputs model =
+    { model | inputName = "", inputDescription = "", inputRegularity = "", inputStartDate = "" }
 
 
 -- SUBSCRIPTIONS
@@ -105,35 +140,27 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
     div [ Attributes.class "page" ]
-    [ div [ Attributes.class "tasks" ] (List.map (viewTask model.timeZone) model.tasks)
-    , div [ Attributes.class "new-task" ]
-        [ formInput "name" "text" "Name" [] InputName
-        , formInput "description" "text" "Description" [] InputDescription
-        , formInput "regularity" "number" "Regularity" [] InputRegularity
-        , formInput "startDate" "date" "Start Date" [] InputStartDate
-        , div []
-            [ button
-                [ Events.onClick <| AddTask <|
-                    let name = Just model.inputName
-                        description = Just model.inputDescription
-                        regularity = String.toInt model.inputRegularity
-                        startDate = Result.toMaybe <| Iso8601.toTime <| model.inputStartDate ++ "T00:00:00Z"
-                    in Maybe.map4 Task name description regularity startDate
-                ]
-                [ text "Add" ]
+        [ div [ Attributes.class "tasks" ] (List.map (viewTask model.timeZone) model.tasks)
+        , div [ Attributes.class "new-task" ]
+            [ formInput "name" "text" "Name" [] InputName model.inputName
+            , formInput "description" "text" "Description" [] InputDescription model.inputDescription
+            , formInput "regularity" "number" "Regularity" [] InputRegularity model.inputRegularity
+            , formInput "startDate" "date" "Start Date" [] InputStartDate model.inputStartDate
+            , div [] [ button [ Events.onClick AddTask ] [ text "Add" ] ]
             ]
         ]
-    ]
 
-formInput : String -> String -> String -> List (Attribute Msg) -> (String -> Msg) -> Html Msg
-formInput id type_ display extraAttributes inputMsg =
+
+formInput : String -> String -> String -> List (Attribute Msg) -> (String -> Msg) -> String -> Html Msg
+formInput id type_ display extraAttributes inputMsg value =
     div []
         [ label [ Attributes.for id ] [ text display ]
-        , input ([ Attributes.type_ type_, Attributes.id id, Attributes.name id, Events.onInput inputMsg ] ++ extraAttributes) []
+        , input ([ Attributes.type_ type_, Attributes.id id, Attributes.name id, Events.onInput inputMsg, Attributes.value value ] ++ extraAttributes) []
         ]
 
+
 viewTask : Time.Zone -> Task -> Html Msg
-viewTask timeZone task = 
+viewTask timeZone task =
     div []
         [ h3 [] [ text task.name ]
         , p [] [ text <| taskDateFormatter timeZone task.startDate ]
@@ -141,9 +168,10 @@ viewTask timeZone task =
         , p [] [ text task.description ]
         ]
 
+
 taskDateFormatter =
     DateFormat.format
-        [ DateFormat.dayOfWeekNameFirstThree
+        [ DateFormat.dayOfWeekNameFull
         , DateFormat.text " "
         , DateFormat.dayOfMonthSuffix
         , DateFormat.text " of "
