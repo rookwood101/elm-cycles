@@ -1,0 +1,26 @@
+#Everys
+ * Repeat every *x* (seconds/minutes/hours/days/weeks/months/years)
+
+#Constraints
+ * Only during (dayofweek/theday/)
+
+evaluate in certain order - order rule parts
+two passes
+    0. add interval of days/months etc.
+    1. add offsets until satisfied all rule parts
+    2. check that all rule parts are still satisfied, if not, loop
+
+def first
+def enumerate_occurences
+TimeUtil
+def full_required?
+def next_time
+
+for each of all_recurrence_rules 
+    find min of each rules next_time,
+    > current time and > start time but < end time
+        starttime = realign?? - start time = start time
+        find_acceptable_time_before(end time)
+            for each "validation" validate with time and start time,
+            store offsets for each validation
+            shift time by offsets
