@@ -1,6 +1,8 @@
 module TimeInt exposing (toHour, toMinute, toMonth, toMonthDay, toMonthWeek, toSecond, toWeekday, toYearDay, toYearWeek)
 
 import Time
+import TimeConstruct
+import TimeUtil
 
 
 toSecond =
@@ -81,13 +83,13 @@ toYearDay zone time =
         daysBeforeThisMonth : Int
         daysBeforeThisMonth =
             monthsBeforeThisOne
-                |> List.map (daysInMonth (Time.toYear zone time))
+                |> List.map (TimeUtil.daysInMonth (Time.toYear zone time))
                 |> List.sum
     in
     daysBeforeThisMonth + toMonthDay zone time
 
 
-toMonthWeek : Time.Weekday -> Zone -> Posix -> Int
+toMonthWeek : Time.Weekday -> Time.Zone -> Time.Posix -> Int
 toMonthWeek firstDayOfWeek zone time =
     let
         daysSoFar : Int
@@ -96,17 +98,13 @@ toMonthWeek firstDayOfWeek zone time =
 
         firstDay : Time.Posix
         firstDay =
-            Iso8601.toTime <|
-                pad 4 '0' String.fromInt (toYear zone time)
-                    ++ "-"
-                    ++ pad 2 '0' String.fromInt (toMonth zone time)
-                    ++ "-01T00:00:00Z"
+            TimeConstruct.constructTime zone time (toYear zone time) (toMonth zone time) 1 0 0 0
 
         firstDayOffset : Int
         firstDayOffset =
             toWeekday firstDayOfWeek zone firstDay
     in
-    (daysSoFar + firstDayOffset) // 7 + 1
+    (daysSoFar + firstDayOffset) // 7
 
 
 toYearWeek : Time.Weekday -> Zone -> Posix -> Int
@@ -118,14 +116,13 @@ toYearWeek firstDayOfWeek zone time =
 
         firstDay : Time.Posix
         firstDay =
-            Iso8601.toTime <|
-                pad 4 '0' String.fromInt (toYear zone time) ++ "-01-01T00:00:00Z"
+            TimeConstruct.constructTime zone time (toYear zone time) 1 1 0 0 0
 
         firstDayOffset : Int
         firstDayOffset =
             toWeekday firstDayOfWeek zone firstDay
     in
-    (daysSoFar + firstDayOffset) // 7 + 1
+    (daysSoFar + firstDayOffset) // 7
 
 
 toMonth =
@@ -165,69 +162,3 @@ toMonth =
 
         Time.Dec ->
             12
-
-
-
--- internal methods
-
-
-daysInMonth : Int -> Int -> Int
-daysInMonth year month =
-    case month of
-        1 ->
-            31
-
-        2 ->
-            if isLeapYear year then
-                29
-
-            else
-                28
-
-        3 ->
-            31
-
-        4 ->
-            30
-
-        5 ->
-            31
-
-        6 ->
-            30
-
-        7 ->
-            31
-
-        8 ->
-            31
-
-        9 ->
-            30
-
-        10 ->
-            31
-
-        11 ->
-            30
-
-        12 ->
-            31
-
-        _ ->
-            Debug.todo "Months can't be over 12"
-
-
-isLeapYear : Int -> Bool
-isLeapYear year =
-    if modBy 4 year /= 0 then
-        False
-
-    else if modBy 100 year /= 0 then
-        True
-
-    else if modBy 400 year /= 0 then
-        False
-
-    else
-        True
