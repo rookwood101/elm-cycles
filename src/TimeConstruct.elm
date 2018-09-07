@@ -1,24 +1,61 @@
-module TimeConstruct exposing (constructTime)
+module TimeConstruct exposing (constructTime, constructTimeUtc)
 
 import Iso8601
 import Time
 
 
-constructTime : Time.Zone -> Time.Posix -> Int -> Int -> Int -> Int -> Int -> Int
+constructTime : Time.Zone -> Time.Posix -> Int -> Int -> Int -> Int -> Int -> Int -> Time.Posix
 constructTime zone timeForOffset year month day hour minute second =
-    Iso8601.toTime <|
-        pad 4 '0' String.fromInt year
-            ++ "-"
-            ++ pad 2 '0' String.fromInt month
-            ++ "-"
-            ++ pad 2 '0' String.fromInt day
-            ++ "T"
-            ++ pad 2 '0' String.fromInt hour
-            ++ ":"
-            ++ pad 2 '0' String.fromInt minute
-            ++ ":"
-            ++ pad 2 '0' String.fromInt second
-            ++ zoneOffsetToString (TimeUtil.zoneOffsetForTime zone timeForOffset)
+    let
+        result =
+            Iso8601.toTime <|
+                Debug.log "date" <|
+                    String.pad 4 '0' (String.fromInt year)
+                        ++ "-"
+                        ++ String.pad 2 '0' (String.fromInt month)
+                        ++ "-"
+                        ++ String.pad 2 '0' (String.fromInt day)
+                        ++ "T"
+                        ++ String.pad 2 '0' (String.fromInt hour)
+                        ++ ":"
+                        ++ String.pad 2 '0' (String.fromInt minute)
+                        ++ ":"
+                        ++ String.pad 2 '0' (String.fromInt second)
+                        ++ zoneOffsetToString (zoneOffsetForTime zone timeForOffset)
+    in
+    case result of
+        Ok newTime ->
+            newTime
+
+        Err _ ->
+            Debug.todo "badly formatted date"
+
+
+constructTimeUtc : Int -> Int -> Int -> Int -> Int -> Int -> Time.Posix
+constructTimeUtc year month day hour minute second =
+    let
+        result =
+            Iso8601.toTime <|
+                Debug.log "dateutc" <|
+                    String.pad 4 '0' (String.fromInt year)
+                        ++ "-"
+                        ++ String.pad 2 '0' (String.fromInt month)
+                        ++ "-"
+                        ++ String.pad 2 '0' (String.fromInt day)
+                        ++ "T"
+                        ++ String.pad 2 '0' (String.fromInt hour)
+                        ++ ":"
+                        ++ String.pad 2 '0' (String.fromInt minute)
+                        ++ ":"
+                        ++ String.pad 2 '0' (String.fromInt second)
+                        ++ "Z"
+    in
+    case result of
+        Ok newTime ->
+            newTime
+
+        Err _ ->
+            Debug.todo "badly formatted dateutc"
 
 
 
@@ -30,7 +67,7 @@ zoneOffsetToString zoneOffset =
     let
         hourPart : Int
         hourPart =
-            abs zoneOffset / 60
+            abs zoneOffset // 60
 
         minutePart : Int
         minutePart =
@@ -44,4 +81,66 @@ zoneOffsetToString zoneOffset =
             else
                 "-"
     in
-    sign ++ String.fromInt hourPart ++ ":" ++ String.fromInt minutePart
+    sign ++ String.pad 2 '0' (String.fromInt hourPart) ++ ":" ++ String.pad 2 '0' (String.fromInt minutePart)
+
+
+zoneOffsetForTime : Time.Zone -> Time.Posix -> Int
+zoneOffsetForTime zone time =
+    let
+        zoneYears =
+            Time.toYear zone time
+
+        zoneMonths =
+            case Time.toMonth zone time of
+                Time.Jan ->
+                    1
+
+                Time.Feb ->
+                    2
+
+                Time.Mar ->
+                    3
+
+                Time.Apr ->
+                    4
+
+                Time.May ->
+                    5
+
+                Time.Jun ->
+                    6
+
+                Time.Jul ->
+                    7
+
+                Time.Aug ->
+                    8
+
+                Time.Sep ->
+                    9
+
+                Time.Oct ->
+                    10
+
+                Time.Nov ->
+                    11
+
+                Time.Dec ->
+                    12
+
+        zoneDays =
+            Time.toDay zone time
+
+        zoneHours =
+            Time.toHour zone time
+
+        zoneMinutes =
+            Time.toMinute zone time
+
+        zoneSeconds =
+            Time.toSecond zone time
+
+        zoneTime =
+            constructTimeUtc zoneYears zoneMonths zoneDays zoneHours zoneMinutes zoneSeconds
+    in
+    (Time.posixToMillis zoneTime - Time.posixToMillis time) // 60000

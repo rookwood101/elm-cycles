@@ -1,5 +1,7 @@
 module TimeUtil exposing (daysInMonth, isLeapYear)
 
+import Time
+
 
 daysInMonth : Int -> Int -> Int
 daysInMonth year month =
@@ -61,21 +63,3 @@ isLeapYear year =
 
     else
         True
-
-
-zoneOffsetForTime : Time.Zone -> Time.Posix -> Int
-zoneOffsetForTime (Time.Zone defaultOffset eras) time =
-    let
-        posixMinutes =
-            floor (toFloat (Time.posixToMillis time) / 60000)
-    in
-    case eras of
-        [] ->
-            defaultOffset
-
-        era :: olderEras ->
-            if era.start < posixMinutes then
-                era.offset
-
-            else
-                zoneOffsetForTime (Time.Zone defaultOffset olderEras) time

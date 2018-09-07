@@ -1,4 +1,4 @@
-module TimeInt exposing (toHour, toMinute, toMonth, toMonthDay, toMonthWeek, toSecond, toWeekday, toYearDay, toYearWeek)
+module TimeInt exposing (toHour, toMinute, toMonth, toMonthDay, toMonthWeek, toSecond, toWeekday, toYear, toYearDay, toYearWeek)
 
 import Time
 import TimeConstruct
@@ -73,7 +73,7 @@ toMonthDay =
     Time.toDay
 
 
-toYearDay : Zone -> Posix -> Int
+toYearDay : Time.Zone -> Time.Posix -> Int
 toYearDay zone time =
     let
         monthsBeforeThisOne : List Int
@@ -107,7 +107,7 @@ toMonthWeek firstDayOfWeek zone time =
     (daysSoFar + firstDayOffset) // 7
 
 
-toYearWeek : Time.Weekday -> Zone -> Posix -> Int
+toYearWeek : Time.Weekday -> Time.Zone -> Time.Posix -> Int
 toYearWeek firstDayOfWeek zone time =
     let
         daysSoFar : Int
@@ -125,7 +125,8 @@ toYearWeek firstDayOfWeek zone time =
     (daysSoFar + firstDayOffset) // 7
 
 
-toMonth =
+toMonth : Time.Zone -> Time.Posix -> Int
+toMonth zone time =
     case Time.toMonth zone time of
         Time.Jan ->
             1
@@ -162,3 +163,7 @@ toMonth =
 
         Time.Dec ->
             12
+
+
+toYear =
+    Time.toYear

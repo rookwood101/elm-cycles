@@ -1,6 +1,8 @@
-module Schedule exposing (Rule, Schedule, UntilRule, nextRecurrenceAfter)
+module Schedule exposing (Rule(..), RuleParts, Schedule, UntilRule, nextRecurrenceAfter)
 
+import Set
 import Time
+import TimeConstruct
 import TimeInt
 import TimeUtil
 
@@ -14,51 +16,47 @@ type alias Schedule =
     }
 
 
-
---should return a maybe
-
-
 nextRecurrenceAfter : Time.Posix -> Schedule -> Maybe Time.Posix
 nextRecurrenceAfter time schedule =
     Maybe.map Time.millisToPosix
-        List.minimum
-    <|
-        List.filterMap
-            (\rule ->
-                let
-                    nextRecurrenceAfterHelperShort =
-                        nextRecurrenceAfterHelper time schedule schedule.startTime
-                in
-                case rule of
-                    Minutely interval ruleParts ->
-                        nextRecurrenceAfterHelperShort ruleParts interval MinuteInterval
+        (List.minimum <|
+            List.filterMap
+                (\rule ->
+                    let
+                        nextRecurrenceAfterHelperShort =
+                            nextRecurrenceAfterHelper time schedule schedule.startTime
+                    in
+                    case rule of
+                        Minutely interval ruleParts ->
+                            nextRecurrenceAfterHelperShort ruleParts interval MinuteInterval
 
-                    Hourly interval ruleParts ->
-                        nextRecurrenceAfterHelperShort ruleParts interval HourInterval
+                        Hourly interval ruleParts ->
+                            nextRecurrenceAfterHelperShort ruleParts interval HourInterval
 
-                    Daily interval ruleParts ->
-                        nextRecurrenceAfterHelperShort ruleParts interval DayInterval
+                        Daily interval ruleParts ->
+                            nextRecurrenceAfterHelperShort ruleParts interval DayInterval
 
-                    Weekly interval ruleParts ->
-                        nextRecurrenceAfterHelperShort ruleParts interval WeekInterval
+                        Weekly interval ruleParts ->
+                            nextRecurrenceAfterHelperShort ruleParts interval WeekInterval
 
-                    Monthly interval ruleParts ->
-                        nextRecurrenceAfterHelperShort ruleParts interval MonthInterval
+                        Monthly interval ruleParts ->
+                            nextRecurrenceAfterHelperShort ruleParts interval MonthInterval
 
-                    Yearly interval ruleParts ->
-                        nextRecurrenceAfterHelperShort ruleParts interval YearInterval
+                        Yearly interval ruleParts ->
+                            nextRecurrenceAfterHelperShort ruleParts interval YearInterval
 
-                    SpecificTime specificTime ->
-                        if Time.posixToMillis specificTime > time then
-                            specificTime
+                        SpecificTime specificTime ->
+                            if Time.posixToMillis specificTime > Time.posixToMillis time then
+                                Just (Time.posixToMillis specificTime)
 
-                        else
-                            Nothing
-            )
-            schedule.rules
+                            else
+                                Nothing
+                )
+                schedule.rules
+        )
 
 
-nextRecurrenceAfterHelper : Time.Posix -> Schedule -> Time.Posix -> RuleParts -> Int -> IntervalUnit
+nextRecurrenceAfterHelper : Time.Posix -> Schedule -> Time.Posix -> RuleParts -> Int -> IntervalUnit -> Maybe Int
 nextRecurrenceAfterHelper time schedule baseTime ruleParts interval intervalUnit =
     let
         timeMillis =
@@ -89,10 +87,10 @@ nextRecurrenceAfterHelper time schedule baseTime ruleParts interval intervalUnit
                 nextRecurrenceAfterHelper time schedule (addInterval schedule.firstDayOfWeek schedule.zone newTime interval intervalUnit) ruleParts interval intervalUnit
 
         else
-            nextRecurrenceAfterHelperValidationOnly time schedule newTime newTimeValidation ruleParts interval intervalUnit
+            nextRecurrenceAfterHelperValidationOnly time schedule newTimeValidation ruleParts interval intervalUnit
 
 
-nextRecurrenceAfterHelperValidationOnly : Time.Posix -> Schedule -> Time.Posix -> RuleParts -> Int -> IntervalUnit
+nextRecurrenceAfterHelperValidationOnly : Time.Posix -> Schedule -> Time.Posix -> RuleParts -> Int -> IntervalUnit -> Maybe Int
 nextRecurrenceAfterHelperValidationOnly time schedule timeToBeValidated ruleParts interval intervalUnit =
     let
         timeMillis =
@@ -105,7 +103,7 @@ nextRecurrenceAfterHelperValidationOnly time schedule timeToBeValidated rulePart
             addRuleParts timeToBeValidated ruleParts schedule
 
         timeValidationMillis =
-            Time.posixToMillis newTime
+            Time.posixToMillis timeValidation
     in
     if timeValidationMillis >= Time.posixToMillis schedule.until then
         Nothing
@@ -121,7 +119,7 @@ nextRecurrenceAfterHelperValidationOnly time schedule timeToBeValidated rulePart
         nextRecurrenceAfterHelperValidationOnly time schedule timeValidation ruleParts interval intervalUnit
 
 
-addRuleParts : Time.Posix -> RuleParts -> Schedule -> Maybe Time.Posix
+addRuleParts : Time.Posix -> RuleParts -> Schedule -> Time.Posix
 addRuleParts time ruleParts schedule =
     let
         addRulePart =
@@ -142,7 +140,7 @@ addRuleParts time ruleParts schedule =
 
 addRulePartHelper : Time.Weekday -> Time.Zone -> RulePart -> TimeUnit -> Bool -> Time.Posix -> Time.Posix
 addRulePartHelper firstDayOfWeek zone rulePart timeUnit discardLesserUnits time =
-    case List.head (sortRulePart currentTimePart rulePart discardLesserUnits) of
+    case List.head (sortRulePart (getTimeUnit firstDayOfWeek zone time timeUnit) rulePart discardLesserUnits) of
         Just timePart ->
             shiftAndRoundTime firstDayOfWeek zone time timePart timeUnit
 
@@ -224,14 +222,14 @@ addInterval firstDayOfWeek zone time interval intervalUnit =
         MonthInterval ->
             let
                 newTime =
-                    addMonths time interval
+                    addMonths zone time interval
             in
             TimeConstruct.constructTime zone newTime (TimeInt.toYear zone newTime) (TimeInt.toMonth zone newTime) 1 0 0 0
 
         YearInterval ->
             let
                 newTime =
-                    addYears time interval
+                    addYears zone time interval
             in
             TimeConstruct.constructTime zone newTime (TimeInt.toYear zone newTime) 1 1 0 0 0
 
@@ -274,6 +272,40 @@ type TimeUnit
     | Year
 
 
+getTimeUnit : Time.Weekday -> Time.Zone -> Time.Posix -> TimeUnit -> Int
+getTimeUnit firstDayOfWeek zone time timeUnit =
+    case timeUnit of
+        SecondOfMinute ->
+            TimeInt.toSecond zone time
+
+        MinuteOfHour ->
+            TimeInt.toMinute zone time
+
+        HourOfDay ->
+            TimeInt.toHour zone time
+
+        DayOfWeek ->
+            TimeInt.toWeekday firstDayOfWeek zone time
+
+        DayOfMonth ->
+            TimeInt.toMonthDay zone time
+
+        DayOfYear ->
+            TimeInt.toYearDay zone time
+
+        WeekOfMonth ->
+            TimeInt.toMonthWeek firstDayOfWeek zone time
+
+        WeekOfYear ->
+            TimeInt.toYearWeek firstDayOfWeek zone time
+
+        MonthOfYear ->
+            TimeInt.toMonth zone time
+
+        Year ->
+            TimeInt.toYear zone time
+
+
 second =
     1000
 
@@ -299,60 +331,62 @@ timeDiff current desired cycleLength =
         (cycleLength - current) + desired
 
 
-shiftAndRoundTime : Time.Weekday -> Time.Zone -> Time.Posix -> Int -> TimeUnit
+shiftAndRoundTime : Time.Weekday -> Time.Zone -> Time.Posix -> Int -> TimeUnit -> Time.Posix
 shiftAndRoundTime firstDayOfWeek zone time desiredTimePart timeUnit =
-    case timeUnit of
-        SecondOfMinute ->
-            second * timeDiff (TimeInt.toSecond zone time) desiredTimePart 60
+    Time.millisToPosix <|
+        case timeUnit of
+            SecondOfMinute ->
+                Time.posixToMillis time + second * timeDiff (TimeInt.toSecond zone time) desiredTimePart 60
 
-        MinuteOfHour ->
-            minute * timeDiff (TimeInt.toMinute zone time) desiredTimePart 60
+            MinuteOfHour ->
+                Time.posixToMillis time + minute * timeDiff (TimeInt.toMinute zone time) desiredTimePart 60
 
-        HourOfDay ->
-            hour * timeDiff (TimeInt.toHour zone time) desiredTimePart 24
+            HourOfDay ->
+                Time.posixToMillis time + hour * timeDiff (TimeInt.toHour zone time) desiredTimePart 24
 
-        DayOfWeek ->
-            day * timeDiff (TimeInt.toWeekday firstDayOfWeek zone time) desiredTimePart 7
+            DayOfWeek ->
+                Time.posixToMillis time + day * timeDiff (TimeInt.toWeekday firstDayOfWeek zone time) desiredTimePart 7
 
-        DayOfMonth ->
-            day * timeDiff (TimeInt.toMonthDay zone time) desiredTimePart (TimeUtil.daysInMonth (TimeInt.toYear zone time) (TimeInt.toMonth zone time))
+            DayOfMonth ->
+                Time.posixToMillis time + day * timeDiff (TimeInt.toMonthDay zone time) desiredTimePart (TimeUtil.daysInMonth (TimeInt.toYear zone time) (TimeInt.toMonth zone time))
 
-        DayOfYear ->
-            day
-                * timeDiff (TimeInt.toYearDay zone time)
-                    desiredTimePart
-                    (if TimeUtil.isLeapYear (TimeInt.toYear zone time) then
-                        366
+            DayOfYear ->
+                Time.posixToMillis time
+                    + day
+                    * timeDiff (TimeInt.toYearDay zone time)
+                        desiredTimePart
+                        (if TimeUtil.isLeapYear (TimeInt.toYear zone time) then
+                            366
 
-                     else
-                        365
-                    )
+                         else
+                            365
+                        )
 
-        WeekOfMonth ->
-            shiftAndRoundTimeByWeekOfMonth firstDayOfWeek zone time desiredTimePart
+            WeekOfMonth ->
+                Time.posixToMillis <| shiftAndRoundTimeByWeekOfMonth firstDayOfWeek zone time desiredTimePart
 
-        WeekOfYear ->
-            shiftAndRoundTimeByWeekOfYear firstDayOfWeek zone time desiredTimePart
+            WeekOfYear ->
+                Time.posixToMillis <| shiftAndRoundTimeByWeekOfYear firstDayOfWeek zone time desiredTimePart
 
-        MonthOfYear ->
-            let
-                currentMonth =
-                    TimeInt.toMonth zone time
+            MonthOfYear ->
+                let
+                    currentMonth =
+                        TimeInt.toMonth zone time
 
-                currentYear =
-                    TimeInt.toYear zone time
+                    currentYear =
+                        TimeInt.toYear zone time
 
-                newYear =
-                    if desired >= currentMonth then
-                        currentYear
+                    newYear =
+                        if desiredTimePart >= currentMonth then
+                            currentYear
 
-                    else
-                        currentYear + 1
-            in
-            TimeConstruct.constructTime zone time newYear desired 1 0 0 0
+                        else
+                            currentYear + 1
+                in
+                Time.posixToMillis <| TimeConstruct.constructTime zone time newYear desiredTimePart 1 0 0 0
 
-        Year ->
-            TimeConstruct.constructTime zone time desiredTimePart 1 1 0 0 0
+            Year ->
+                Time.posixToMillis <| TimeConstruct.constructTime zone time desiredTimePart 1 1 0 0 0
 
 
 
@@ -369,10 +403,10 @@ shiftAndRoundTimeByWeekOfMonth firstDayOfWeek zone time desiredWeekOfMonth =
         TimeConstruct.constructTime zone time (TimeInt.toYear zone time) (TimeInt.toMonth zone time) (TimeInt.toMonthDay zone time) 0 0 0
 
     else if desiredWeekOfMonth < current then
-        shiftAndRoundTimeByWeekOfMonth (TimeConstruct.constructTime zone time (TimeInt.toYear zone time) (1 + TimeInt.toMonth zone time) 1 0 0 0)
+        shiftAndRoundTimeByWeekOfMonth firstDayOfWeek zone (TimeConstruct.constructTime zone time (TimeInt.toYear zone time) (1 + TimeInt.toMonth zone time) 1 0 0 0) desiredWeekOfMonth
 
     else
-        shiftAndRoundTimeByWeekOfMonth (Time.millisToPosix (day + Time.posixToMillis time))
+        shiftAndRoundTimeByWeekOfMonth firstDayOfWeek zone (Time.millisToPosix (day + Time.posixToMillis time)) desiredWeekOfMonth
 
 
 shiftAndRoundTimeByWeekOfYear : Time.Weekday -> Time.Zone -> Time.Posix -> Int -> Time.Posix
@@ -385,10 +419,10 @@ shiftAndRoundTimeByWeekOfYear firstDayOfWeek zone time desiredWeekOfYear =
         TimeConstruct.constructTime zone time (TimeInt.toYear zone time) (TimeInt.toMonth zone time) 1 0 0 0
 
     else if desiredWeekOfYear < current then
-        shiftAndRoundTimeByWeekOfYear (TimeConstruct.constructTime zone time (1 + TimeInt.toYear zone time) 1 1 0 0 0)
+        shiftAndRoundTimeByWeekOfYear firstDayOfWeek zone (TimeConstruct.constructTime zone time (1 + TimeInt.toYear zone time) 1 1 0 0 0) desiredWeekOfYear
 
     else
-        shiftAndRoundTimeByWeekOfYear (Time.millisToPosix ((27 * day) + Time.posixToMillis time))
+        shiftAndRoundTimeByWeekOfYear firstDayOfWeek zone (Time.millisToPosix ((27 * day) + Time.posixToMillis time)) desiredWeekOfYear
 
 
 type alias RuleParts =
@@ -412,22 +446,21 @@ type alias RulePart =
 
 -- TODO: is it ok that it's 0 based for some and 1 for others?
 -- TODO: validate rule parts as well as sorting
-
-
-sortRuleParts : RuleParts -> SortedRuleParts
-sortRuleParts ruleParts time schedule =
-    SortedRuleParts
-        { secondOfMinute = sortRulePart (TimeInt.toSecond time) ruleParts.secondOfMinute
-        , minuteOfHour = sortRulePart (TimeInt.toMinute time) ruleParts.minuteOfHour
-        , hourOfDay = sortRulePart (TimeInt.toHour time) ruleParts.hourOfDay
-        , dayOfWeek = sortRulePart (TimeInt.toWeekday time) ruleParts.dayOfWeek
-        , dayOfMonth = sortRulePart (TimeInt.toMonthDay time) ruleParts.dayOfMonth
-        , dayOfYear = sortRulePart (TimeInt.toYearDay time) ruleParts.dayOfYear
-        , weekOfMonth = sortRulePart (TimeInt.toMonthWeek time schedule.firstDayOfWeek) ruleParts.weekOfMonth
-        , weekOfYear = sortRulePart (TimeInt.toYearWeek time schedule.firstDayOfWeek) ruleParts.weekOfYear
-        , monthOfYear = sortRulePart (TimeInt.toMonth time) ruleParts.monthOfYear
-        , year = sortRulePart (TimeInt.toYear time) ruleParts.year
-        }
+--sortRuleParts : RuleParts -> SortedRuleParts
+--sortRuleParts ruleParts time schedule =
+--    SortedRuleParts
+--        { secondOfMinute = sortRulePart (TimeInt.toSecond time) ruleParts.secondOfMinute
+--        , minuteOfHour = sortRulePart (TimeInt.toMinute time) ruleParts.minuteOfHour
+--        , hourOfDay = sortRulePart (TimeInt.toHour time) ruleParts.hourOfDay
+--        , dayOfWeek = sortRulePart (TimeInt.toWeekday time) ruleParts.dayOfWeek
+--        , dayOfMonth = sortRulePart (TimeInt.toMonthDay time) ruleParts.dayOfMonth
+--        , dayOfYear = sortRulePart (TimeInt.toYearDay time) ruleParts.dayOfYear
+--        , weekOfMonth = sortRulePart (TimeInt.toMonthWeek time schedule.firstDayOfWeek) ruleParts.weekOfMonth
+--        , weekOfYear = sortRulePart (TimeInt.toYearWeek time schedule.firstDayOfWeek) ruleParts.weekOfYear
+--        , monthOfYear = sortRulePart (TimeInt.toMonth time) ruleParts.monthOfYear
+--        , year = sortRulePart (TimeInt.toYear time) ruleParts.year
+--        }
+--
 
 
 sortRulePart : Int -> List Int -> Bool -> List Int
