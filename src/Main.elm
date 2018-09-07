@@ -8,8 +8,10 @@ import Html exposing (..)
 import Html.Attributes as Attributes
 import Html.Events as Events
 import Iso8601
+import Schedule
 import Task
 import Time
+import TimeConstruct
 
 
 main =
@@ -32,8 +34,7 @@ type alias Days =
 type alias Task =
     { name : String
     , description : String
-    , regularity : Days
-    , startDate : Time.Posix
+    , schedule : Schedule.Schedule
     }
 
 
@@ -48,16 +49,29 @@ type alias Model =
     }
 
 
+initSchedule : Schedule.Schedule
+initSchedule =
+    { rules =
+        [ Schedule.Daily 1
+            (Schedule.RuleParts [ 13 ] [] [] [] [] [] [] [] [] [])
+        ]
+    , startTime = TimeConstruct.constructTimeUtc 2018 9 1 13 0 0
+    , until = TimeConstruct.constructTimeUtc 2018 10 1 13 0 0
+    , zone = Time.utc
+    , firstDayOfWeek = Time.Mon
+    }
+
+
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( Model
-        [ Task "Laundry" "Don't forget the rags!" 7 (Time.millisToPosix 999999) ]
+        [ Task "Laundry" "Don't forget the rags!" initSchedule ]
         ""
         ""
         ""
         ""
         Time.utc
-        (Time.millisToPosix 0)
+        (TimeConstruct.constructTimeUtc 2018 9 6 23 28 0)
     , Task.perform UpdateTimeNow (Task.map2 (\zone posix -> ( zone, posix )) Time.here Time.now)
     )
 
@@ -111,18 +125,16 @@ makeTask model =
         description =
             Just model.inputDescription
 
-        regularity =
-            String.toInt model.inputRegularity
+        schedule =
+            Just { initSchedule | zone = model.timeZone }
+    in
+    Maybe.map3 Task name description schedule
 
-        startDate =
-            Result.toMaybe <| Iso8601.toTime <| model.inputStartDate ++ "T00:00:00Z"
-
-    in 
-        Maybe.map4 Task name description regularity startDate
 
 resetInputs : Model -> Model
 resetInputs model =
     { model | inputName = "", inputDescription = "", inputRegularity = "", inputStartDate = "" }
+
 
 
 -- SUBSCRIPTIONS
@@ -140,7 +152,7 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
     div [ Attributes.class "page" ]
-        [ div [ Attributes.class "tasks" ] (List.map (viewTask model.timeZone) model.tasks)
+        [ div [ Attributes.class "tasks" ] (List.map (viewTask model) model.tasks)
         , div [ Attributes.class "new-task" ]
             [ formInput "name" "text" "Name" [] InputName model.inputName
             , formInput "description" "text" "Description" [] InputDescription model.inputDescription
@@ -159,12 +171,26 @@ formInput id type_ display extraAttributes inputMsg value =
         ]
 
 
-viewTask : Time.Zone -> Task -> Html Msg
-viewTask timeZone task =
+viewTask : Model -> Task -> Html Msg
+viewTask model task =
     div []
         [ h3 [] [ text task.name ]
-        , p [] [ text <| taskDateFormatter timeZone task.startDate ]
-        , p [] [ text <| "Every " ++ String.fromInt task.regularity ++ " days" ] -- convert period to string
+        , p [] [ text <| taskDateFormatter model.timeZone task.schedule.startTime ]
+        , p []
+            [ text <|
+                "Next: "
+                    ++ (let
+                            nextRecurrence =
+                                Schedule.nextRecurrenceAfter model.timeNow task.schedule
+                        in
+                        case nextRecurrence of
+                            Just recurrenceTime ->
+                                taskDateFormatter model.timeZone recurrenceTime
+
+                            Nothing ->
+                                "Unavailable"
+                       )
+            ]
         , p [] [ text task.description ]
         ]
 
@@ -178,4 +204,11 @@ taskDateFormatter =
         , DateFormat.monthNameFull
         , DateFormat.text " "
         , DateFormat.yearNumber
+        , DateFormat.text " at "
+        , DateFormat.hourNumber
+        , DateFormat.text ":"
+        , DateFormat.minuteFixed
+        , DateFormat.text ":"
+        , DateFormat.secondFixed
+        , DateFormat.amPmLowercase
         ]
