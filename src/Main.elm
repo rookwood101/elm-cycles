@@ -125,8 +125,14 @@ makeTask model =
         description =
             Just model.inputDescription
 
+        zoneOffsetString =
+            TimeConstruct.zoneOffsetToString (TimeConstruct.zoneOffsetForTime model.timeZone model.timeNow)
+
+        startTime =
+            Result.toMaybe <| Iso8601.toTime <| model.inputStartDate ++ "T00:00:00" ++ zoneOffsetString
+
         schedule =
-            Just { initSchedule | zone = model.timeZone }
+            Just { initSchedule | zone = model.timeZone, startTime = Maybe.withDefault model.timeNow startTime }
     in
     Maybe.map3 Task name description schedule
 
@@ -152,14 +158,15 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
     div [ Attributes.class "page" ]
-        [ div [ Attributes.class "tasks" ] (List.map (viewTask model) model.tasks)
-        , div [ Attributes.class "new-task" ]
+        [ div [ Attributes.class "new-task" ]
             [ formInput "name" "text" "Name" [] InputName model.inputName
             , formInput "description" "text" "Description" [] InputDescription model.inputDescription
             , formInput "regularity" "number" "Regularity" [] InputRegularity model.inputRegularity
             , formInput "startDate" "date" "Start Date" [] InputStartDate model.inputStartDate
             , div [] [ button [ Events.onClick AddTask ] [ text "Add" ] ]
             ]
+        , hr [] []
+        , div [ Attributes.class "tasks" ] (List.map (viewTask model) model.tasks)
         ]
 
 

@@ -1,4 +1,4 @@
-module TimeConstruct exposing (constructTime, constructTimeUtc)
+module TimeConstruct exposing (constructTime, constructTimeUtc, zoneOffsetForTime, zoneOffsetToString)
 
 import Iso8601
 import Time
@@ -9,19 +9,18 @@ constructTime zone timeForOffset year month day hour minute second =
     let
         result =
             Iso8601.toTime <|
-                Debug.log "date" <|
-                    String.pad 4 '0' (String.fromInt year)
-                        ++ "-"
-                        ++ String.pad 2 '0' (String.fromInt month)
-                        ++ "-"
-                        ++ String.pad 2 '0' (String.fromInt day)
-                        ++ "T"
-                        ++ String.pad 2 '0' (String.fromInt hour)
-                        ++ ":"
-                        ++ String.pad 2 '0' (String.fromInt minute)
-                        ++ ":"
-                        ++ String.pad 2 '0' (String.fromInt second)
-                        ++ zoneOffsetToString (zoneOffsetForTime zone timeForOffset)
+                String.pad 4 '0' (String.fromInt year)
+                    ++ "-"
+                    ++ String.pad 2 '0' (String.fromInt month)
+                    ++ "-"
+                    ++ String.pad 2 '0' (String.fromInt day)
+                    ++ "T"
+                    ++ String.pad 2 '0' (String.fromInt hour)
+                    ++ ":"
+                    ++ String.pad 2 '0' (String.fromInt minute)
+                    ++ ":"
+                    ++ String.pad 2 '0' (String.fromInt second)
+                    ++ zoneOffsetToString (zoneOffsetForTime zone timeForOffset)
     in
     case result of
         Ok newTime ->
@@ -33,22 +32,28 @@ constructTime zone timeForOffset year month day hour minute second =
 
 constructTimeUtc : Int -> Int -> Int -> Int -> Int -> Int -> Time.Posix
 constructTimeUtc year month day hour minute second =
+    constructTimeUtcWithMillis year month day hour minute second 0
+
+
+constructTimeUtcWithMillis : Int -> Int -> Int -> Int -> Int -> Int -> Int -> Time.Posix
+constructTimeUtcWithMillis year month day hour minute second millis =
     let
         result =
             Iso8601.toTime <|
-                Debug.log "dateutc" <|
-                    String.pad 4 '0' (String.fromInt year)
-                        ++ "-"
-                        ++ String.pad 2 '0' (String.fromInt month)
-                        ++ "-"
-                        ++ String.pad 2 '0' (String.fromInt day)
-                        ++ "T"
-                        ++ String.pad 2 '0' (String.fromInt hour)
-                        ++ ":"
-                        ++ String.pad 2 '0' (String.fromInt minute)
-                        ++ ":"
-                        ++ String.pad 2 '0' (String.fromInt second)
-                        ++ "Z"
+                String.pad 4 '0' (String.fromInt year)
+                    ++ "-"
+                    ++ String.pad 2 '0' (String.fromInt month)
+                    ++ "-"
+                    ++ String.pad 2 '0' (String.fromInt day)
+                    ++ "T"
+                    ++ String.pad 2 '0' (String.fromInt hour)
+                    ++ ":"
+                    ++ String.pad 2 '0' (String.fromInt minute)
+                    ++ ":"
+                    ++ String.pad 2 '0' (String.fromInt second)
+                    ++ "."
+                    ++ String.pad 3 '0' (String.fromInt millis)
+                    ++ "Z"
     in
     case result of
         Ok newTime ->
@@ -140,7 +145,10 @@ zoneOffsetForTime zone time =
         zoneSeconds =
             Time.toSecond zone time
 
+        zoneMilliseconds =
+            modBy 1000 <| Time.posixToMillis time
+
         zoneTime =
-            constructTimeUtc zoneYears zoneMonths zoneDays zoneHours zoneMinutes zoneSeconds
+            constructTimeUtcWithMillis zoneYears zoneMonths zoneDays zoneHours zoneMinutes zoneSeconds zoneMilliseconds
     in
     (Time.posixToMillis zoneTime - Time.posixToMillis time) // 60000
