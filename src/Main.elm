@@ -1,19 +1,20 @@
 module Main exposing (main)
 
-import Array
 import Browser
 import DateFormat
 import Debug
 import Dict
-import Focus
 import Form
 import Form.Base.TextField
+import Form.Error
 import Form.Value
 import Form.View
+import FormCustomView
 import Html exposing (..)
 import Html.Attributes as Attributes
 import Html.Events as Events
 import Iso8601
+import List.Extra
 import Schedule
 import Task
 import Time
@@ -44,7 +45,7 @@ type alias RuleRawValues =
     , specificTime : Form.Value.Value String
     , timeIntervalUnit : Form.Value.Value String
     , timeInterval : Form.Value.Value Float
-    , ruleParts : Array.Array (Form.View.Model RulePartRawValues)
+    , ruleParts : List (Form.View.Model RulePartRawValues)
     }
 
 
@@ -55,7 +56,7 @@ type alias FormRawValues =
     , hasEndTime : Form.Value.Value Bool
     , endTime : Form.Value.Value String
     , firstDayOfWeek : Form.Value.Value String
-    , rules : Array.Array (Form.View.Model RuleRawValues)
+    , rules : List (Form.View.Model RuleRawValues)
     }
 
 
@@ -75,6 +76,7 @@ type alias Model =
     , timeZone : Time.Zone
     , timeNow : Time.Posix
     , taskRaw : Form.View.Model FormRawValues
+    , isFormValid : Bool
     }
 
 
@@ -99,22 +101,24 @@ blankTaskForm =
         , hasEndTime = Form.Value.blank
         , endTime = Form.Value.blank
         , firstDayOfWeek = Form.Value.blank
-        , rules =
-            Array.fromList
-                [ Form.View.idle
-                    { isPeriodic = Form.Value.filled True
-                    , specificTime = Form.Value.blank
-                    , timeIntervalUnit = Form.Value.blank
-                    , timeInterval = Form.Value.blank
-                    , ruleParts =
-                        Array.fromList
-                            [ Form.View.idle
-                                { timeUnit = Form.Value.blank
-                                , timeUnitValue = Form.Value.blank
-                                }
-                            ]
-                    }
-                ]
+        , rules = [ blankRuleForm ]
+        }
+
+
+blankRuleForm =
+    Form.View.idle
+        { isPeriodic = Form.Value.filled True
+        , specificTime = Form.Value.blank
+        , timeIntervalUnit = Form.Value.blank
+        , timeInterval = Form.Value.blank
+        , ruleParts = [ blankRulePartForm ]
+        }
+
+
+blankRulePartForm =
+    Form.View.idle
+        { timeUnit = Form.Value.blank
+        , timeUnitValue = Form.Value.blank
         }
 
 
@@ -129,6 +133,7 @@ init _ =
         Time.utc
         (TimeConstruct.constructTimeUtc 2018 9 6 23 28 0)
         blankTaskForm
+        False
     , Task.perform UpdateTimeNow (Task.map2 (\zone posix -> ( zone, posix )) Time.here Time.now)
     )
 
@@ -138,7 +143,8 @@ init _ =
 
 
 type Msg
-    = AddTask
+    = Null
+    | AddTask
     | InputName String
     | InputDescription String
     | InputRegularity String
@@ -149,12 +155,30 @@ type Msg
     | UpdateRulePart Int Int (Form.View.Model RulePartRawValues)
     | NewAddTask
     | AddRule
-    | AddRulePart
+    | AddRulePart Int
+    | RemoveRule Int
+    | RemoveRulePart Int Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
+    let
+        setTaskRaw r taskRaw =
+            { r | taskRaw = taskRaw }
+
+        setValues r values =
+            { r | values = values }
+
+        setRules r rules =
+            { r | rules = rules }
+
+        setRuleParts r ruleParts =
+            { r | ruleParts = ruleParts }
+    in
     case msg of
+        Null ->
+            ( model, Cmd.none )
+
         AddTask ->
             case makeTask model of
                 Just task ->
@@ -182,76 +206,130 @@ update msg model =
             ( { model | taskRaw = newForm }, Cmd.none )
 
         UpdateTaskRule ruleIndex newForm ->
-            let
-                taskRaw =
-                    model.taskRaw
-
-                values =
-                    model.taskRaw.values
-            in
-            ( { model
-                | taskRaw =
-                    { taskRaw
-                        | values =
-                            { values
-                                | rules =
-                                    Array.set ruleIndex newForm values.rules
-                            }
-                    }
-              }
+            ( List.Extra.setAt ruleIndex newForm model.taskRaw.values.rules
+                |> setRules model.taskRaw.values
+                |> setValues model.taskRaw
+                |> setTaskRaw model
             , Cmd.none
             )
 
         UpdateRulePart ruleIndex rulePartIndex newForm ->
             let
-                taskRaw =
-                    model.taskRaw
-
-                values =
-                    model.taskRaw.values
+                updateRulesList newValue =
+                    List.Extra.setAt ruleIndex newValue model.taskRaw.values.rules
 
                 maybeRule =
-                    Array.get ruleIndex values.rules
+                    List.Extra.getAt ruleIndex model.taskRaw.values.rules
             in
-            ( { model
-                | taskRaw =
-                    { taskRaw
-                        | values =
-                            { values
-                                | rules =
-                                    case maybeRule of
-                                        Just rule ->
-                                            let
-                                                ruleValues =
-                                                    rule.values
+            case maybeRule of
+                Just rule ->
+                    ( List.Extra.setAt rulePartIndex newForm rule.values.ruleParts
+                        |> setRuleParts rule.values
+                        |> setValues rule
+                        |> updateRulesList
+                        |> setRules model.taskRaw.values
+                        |> setValues model.taskRaw
+                        |> setTaskRaw model
+                    , Cmd.none
+                    )
 
-                                                newRule =
-                                                    { rule
-                                                        | values =
-                                                            { ruleValues
-                                                                | ruleParts =
-                                                                    Array.set rulePartIndex newForm ruleValues.ruleParts
-                                                            }
-                                                    }
-                                            in
-                                            Array.set ruleIndex newRule values.rules
+                Nothing ->
+                    ( model, Cmd.none )
 
-                                        Nothing ->
-                                            values.rules
-                            }
-                    }
-              }
+        NewAddTask ->
+            let
+                taskDetailsResult =
+                    (Form.fill (taskDetailsForm model) model.taskRaw.values).result
+
+                taskRulesResults =
+                    List.map (.values >> Form.fill (taskRuleForm model) >> .result) model.taskRaw.values.rules
+
+                rulePartsResults ruleIndex rule =
+                    List.map (.values >> Form.fill (rulePartForm model ruleIndex) >> .result) rule.values.ruleParts
+
+                taskRulePartsResults : List (Result ( Form.Error.Error, List Form.Error.Error ) Msg)
+                taskRulePartsResults =
+                    List.concat <| List.indexedMap rulePartsResults model.taskRaw.values.rules
+
+                resultIsOk r =
+                    case r of
+                        Ok _ ->
+                            True
+
+                        _ ->
+                            False
+
+                listAllOk =
+                    List.all resultIsOk
+            in
+            if resultIsOk taskDetailsResult && listAllOk taskRulesResults && listAllOk taskRulePartsResults then
+                ( { model | isFormValid = True, tasks = makeTaskNew model :: model.tasks }, Cmd.none )
+
+            else
+                ( { model | isFormValid = False }, Cmd.none )
+
+        AddRule ->
+            ( model.taskRaw.values.rules
+                ++ [ blankRuleForm ]
+                |> setRules model.taskRaw.values
+                |> setValues model.taskRaw
+                |> setTaskRaw model
             , Cmd.none
             )
 
-        NewAddTask ->
-            ( model, Cmd.none )
+        AddRulePart ruleIndex ->
+            let
+                updateRulesList newValue =
+                    List.Extra.setAt ruleIndex newValue model.taskRaw.values.rules
 
-        AddRule ->
-            ( model, Cmd.none )
+                maybeRule =
+                    List.Extra.getAt ruleIndex model.taskRaw.values.rules
+            in
+            case maybeRule of
+                Just rule ->
+                    ( (rule.values.ruleParts ++ [ blankRulePartForm ])
+                        |> setRuleParts rule.values
+                        |> setValues rule
+                        |> updateRulesList
+                        |> setRules model.taskRaw.values
+                        |> setValues model.taskRaw
+                        |> setTaskRaw model
+                    , Cmd.none
+                    )
 
-        AddRulePart ->
-            ( model, Cmd.none )
+                Nothing ->
+                    ( model, Cmd.none )
+
+        RemoveRule ruleIndex ->
+            ( List.Extra.removeAt ruleIndex model.taskRaw.values.rules
+                |> setRules model.taskRaw.values
+                |> setValues model.taskRaw
+                |> setTaskRaw model
+            , Cmd.none
+            )
+
+        RemoveRulePart ruleIndex rulePartIndex ->
+            let
+                updateRulesList newValue =
+                    List.Extra.setAt ruleIndex newValue model.taskRaw.values.rules
+
+                maybeRule =
+                    List.Extra.getAt ruleIndex model.taskRaw.values.rules
+            in
+            case maybeRule of
+                Just rule ->
+                    ( List.Extra.removeAt rulePartIndex rule.values.ruleParts
+                        |> setRuleParts rule.values
+                        |> setValues rule
+                        |> updateRulesList
+                        |> setRules model.taskRaw.values
+                        |> setValues model.taskRaw
+                        |> setTaskRaw model
+                    , Cmd.none
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
 
 
 
@@ -407,49 +485,58 @@ stringToWeekday value =
 newTaskForm : Model -> Html Msg
 newTaskForm model =
     div [ Attributes.class "new-task-form" ]
-        ([ Form.View.asHtml
+        [ FormCustomView.asHtmlCustom
             { onChange = UpdateTaskDetails
-            , action = "Create Task"
+            , action = ""
             , loading = ""
             , validation = Form.View.ValidateOnBlur
             }
             (taskDetailsForm model)
             model.taskRaw
-         ]
-            ++ (Array.toList <|
-                    Array.indexedMap
-                        (\ruleIndex taskRuleRaw ->
-                            div [ Attributes.class "rule" ]
-                                ([ Form.View.asHtml
-                                    { onChange = UpdateTaskRule ruleIndex
-                                    , action = "Add Rule"
-                                    , loading = ""
-                                    , validation = Form.View.ValidateOnBlur
-                                    }
-                                    (taskRuleForm model)
-                                    taskRuleRaw
-                                 ]
-                                    ++ (Array.toList <|
-                                            Array.indexedMap
-                                                (\rulePartIndex rulePartRaw ->
-                                                    div [ Attributes.class "rule-part" ]
-                                                        [ Form.View.asHtml
-                                                            { onChange = UpdateRulePart ruleIndex rulePartIndex
-                                                            , action = "Add Rule Part"
-                                                            , loading = ""
-                                                            , validation = Form.View.ValidateOnBlur
-                                                            }
-                                                            (rulePartForm model)
-                                                            rulePartRaw
-                                                        ]
-                                                )
-                                                taskRuleRaw.values.ruleParts
-                                       )
+        , div [ Attributes.class "rules" ]
+            (List.indexedMap
+                (\ruleIndex taskRuleRaw ->
+                    div [ Attributes.class "rule", Attributes.style "border" "1px solid blue", Attributes.style "margin" "10px", Attributes.style "padding" "10px" ]
+                        [ button [ Events.onClick (RemoveRule ruleIndex), Attributes.style "float" "right" ] [ text "-" ]
+                        , FormCustomView.asHtmlCustom
+                            { onChange = UpdateTaskRule ruleIndex
+                            , action = ""
+                            , loading = ""
+                            , validation = Form.View.ValidateOnBlur
+                            }
+                            (taskRuleForm model)
+                            taskRuleRaw
+                        , div [ Attributes.class "rule-parts" ]
+                            (List.indexedMap
+                                (\rulePartIndex rulePartRaw ->
+                                    div [ Attributes.class "rule-part", Attributes.style "border" "1px solid red", Attributes.style "margin" "10px", Attributes.style "padding" "10px" ]
+                                        [ button [ Events.onClick (RemoveRulePart ruleIndex rulePartIndex), Attributes.style "float" "right" ] [ text "-" ]
+                                        , FormCustomView.asHtmlCustom
+                                            { onChange = UpdateRulePart ruleIndex rulePartIndex
+                                            , action = ""
+                                            , loading = ""
+                                            , validation = Form.View.ValidateOnBlur
+                                            }
+                                            (rulePartForm model ruleIndex)
+                                            rulePartRaw
+                                        ]
                                 )
-                        )
-                        model.taskRaw.values.rules
-               )
-        )
+                                taskRuleRaw.values.ruleParts
+                                ++ [ button [ Events.onClick (AddRulePart ruleIndex), Attributes.style "margin-left" "10px" ] [ text "Add Rule Part" ] ]
+                            )
+                        ]
+                )
+                model.taskRaw.values.rules
+                ++ [ button [ Events.onClick AddRule, Attributes.style "margin-left" "10px" ] [ text "Add Rule" ] ]
+            )
+        , button [ Events.onClick NewAddTask ] [ text "Add Task" ]
+        , text <|
+            if model.isFormValid then
+                ""
+
+            else
+                "Form Invalid"
+        ]
 
 
 attributesHelper : String -> String -> Form.Base.TextField.Attributes
@@ -506,7 +593,7 @@ taskDetailsForm model =
                     }
                 }
     in
-    Form.succeed (\_ _ _ _ _ -> NewAddTask)
+    Form.succeed (\_ _ _ _ _ -> Null)
         |> Form.append title
         |> Form.append description
         |> Form.append startTime
@@ -567,18 +654,18 @@ taskRuleForm model =
         |> Form.andThen
             (\isPeriodic_ ->
                 if isPeriodic_ then
-                    Form.succeed (\_ _ -> AddRule)
+                    Form.succeed (\_ _ -> Null)
                         |> Form.append timeInterval
                         |> Form.append timeIntervalUnit
                         |> Form.group
 
                 else
-                    Form.succeed (\_ -> AddRule)
+                    Form.succeed (\_ -> Null)
                         |> Form.append specificTime
             )
 
 
-rulePartForm model =
+rulePartForm model ruleIndex =
     let
         timeUnitsToOptions =
             [ ( "Second of Minute", List.map String.fromInt (List.range 0 59) )
@@ -629,7 +716,7 @@ rulePartForm model =
                 in
                 case maybeOptions of
                     Just options ->
-                        Form.succeed (\_ -> AddRulePart)
+                        Form.succeed (\_ -> Null)
                             |> Form.append (timeUnitValue options)
 
                     Nothing ->
