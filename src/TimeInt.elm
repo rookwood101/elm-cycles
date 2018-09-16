@@ -19,54 +19,7 @@ toHour =
 
 toWeekday : Time.Weekday -> Time.Zone -> Time.Posix -> Int
 toWeekday firstDayOfWeek zone time =
-    let
-        offset =
-            case firstDayOfWeek of
-                Time.Sun ->
-                    0
-
-                Time.Mon ->
-                    6
-
-                Time.Tue ->
-                    5
-
-                Time.Wed ->
-                    4
-
-                Time.Thu ->
-                    3
-
-                Time.Fri ->
-                    2
-
-                Time.Sat ->
-                    1
-
-        unshifted =
-            case Time.toWeekday zone time of
-                Time.Sun ->
-                    0
-
-                Time.Mon ->
-                    1
-
-                Time.Tue ->
-                    2
-
-                Time.Wed ->
-                    3
-
-                Time.Thu ->
-                    4
-
-                Time.Fri ->
-                    5
-
-                Time.Sat ->
-                    6
-    in
-    modBy (unshifted + offset) 7
+    TimeUtil.weekdayToInt firstDayOfWeek <| Time.toWeekday zone time
 
 
 toMonthDay =

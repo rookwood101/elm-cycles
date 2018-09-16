@@ -1,4 +1,4 @@
-module TimeUtil exposing (daysInMonth, isLeapYear)
+module TimeUtil exposing (daysInMonth, isLeapYear, monthToInt, weekdayToInt)
 
 import Time
 
@@ -63,3 +63,95 @@ isLeapYear year =
 
     else
         True
+
+
+weekdayToInt : Time.Weekday -> Time.Weekday -> Int
+weekdayToInt firstDayOfWeek weekday =
+    let
+        offset =
+            case firstDayOfWeek of
+                Time.Sun ->
+                    0
+
+                Time.Mon ->
+                    6
+
+                Time.Tue ->
+                    5
+
+                Time.Wed ->
+                    4
+
+                Time.Thu ->
+                    3
+
+                Time.Fri ->
+                    2
+
+                Time.Sat ->
+                    1
+
+        unshifted =
+            case weekday of
+                Time.Sun ->
+                    0
+
+                Time.Mon ->
+                    1
+
+                Time.Tue ->
+                    2
+
+                Time.Wed ->
+                    3
+
+                Time.Thu ->
+                    4
+
+                Time.Fri ->
+                    5
+
+                Time.Sat ->
+                    6
+    in
+    modBy (unshifted + offset) 7
+
+
+monthToInt : Time.Month -> Int
+monthToInt month =
+    case month of
+        Time.Jan ->
+            1
+
+        Time.Feb ->
+            2
+
+        Time.Mar ->
+            3
+
+        Time.Apr ->
+            4
+
+        Time.May ->
+            5
+
+        Time.Jun ->
+            6
+
+        Time.Jul ->
+            7
+
+        Time.Aug ->
+            8
+
+        Time.Sep ->
+            9
+
+        Time.Oct ->
+            10
+
+        Time.Nov ->
+            11
+
+        Time.Dec ->
+            12

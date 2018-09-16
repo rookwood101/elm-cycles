@@ -53,7 +53,6 @@ type alias FormRawValues =
     { title : Form.Value.Value String
     , description : Form.Value.Value String
     , startTime : Form.Value.Value String
-    , hasEndTime : Form.Value.Value Bool
     , endTime : Form.Value.Value String
     , firstDayOfWeek : Form.Value.Value String
     , rules : List (Form.View.Model RuleRawValues)
@@ -98,9 +97,8 @@ blankTaskForm =
         { title = Form.Value.blank
         , description = Form.Value.blank
         , startTime = Form.Value.blank
-        , hasEndTime = Form.Value.blank
         , endTime = Form.Value.blank
-        , firstDayOfWeek = Form.Value.blank
+        , firstDayOfWeek = Form.Value.filled "Monday"
         , rules = [ blankRuleForm ]
         }
 
@@ -133,7 +131,7 @@ init _ =
         Time.utc
         (TimeConstruct.constructTimeUtc 2018 9 6 23 28 0)
         blankTaskForm
-        False
+        True
     , Task.perform UpdateTimeNow (Task.map2 (\zone posix -> ( zone, posix )) Time.here Time.now)
     )
 
@@ -263,7 +261,25 @@ update msg model =
                     List.all resultIsOk
             in
             if resultIsOk taskDetailsResult && listAllOk taskRulesResults && listAllOk taskRulePartsResults then
-                ( { model | isFormValid = True, tasks = makeTaskNew model :: model.tasks }, Cmd.none )
+                --( { model | isFormValid = True }, Cmd.none )
+                ( { model
+                    | isFormValid = True
+                    , tasks =
+                        case makeTaskNew model of
+                            Just task ->
+                                task :: model.tasks
+
+                            Nothing ->
+                                let
+                                    debug =
+                                        Debug.log "couldn't create task" model
+                                in
+                                model.tasks
+
+                    --                    , taskRaw = blankTaskForm
+                  }
+                , Cmd.none
+                )
 
             else
                 ( { model | isFormValid = False }, Cmd.none )
@@ -355,6 +371,258 @@ makeTask model =
             Just { initSchedule | zone = model.timeZone, startTime = Maybe.withDefault model.timeNow startTime }
     in
     Maybe.map3 Task name description schedule
+
+
+valueWithDefault v default =
+    case Form.Value.raw v of
+        Just string ->
+            string
+
+        Nothing ->
+            default
+
+
+type alias RuleRawValuesNotForm =
+    { isPeriodic : Form.Value.Value Bool
+    , specificTime : Form.Value.Value String
+    , timeIntervalUnit : Form.Value.Value String
+    , timeInterval : Form.Value.Value Float
+    , ruleParts : List RulePartRawValues
+    }
+
+
+makeTaskNew : Model -> Maybe Task
+makeTaskNew model =
+    let
+        detailsRaw =
+            model.taskRaw.values
+
+        rulePartsRaw : RuleRawValues -> RuleRawValuesNotForm
+        rulePartsRaw ruleRaw =
+            { isPeriodic = ruleRaw.isPeriodic
+            , specificTime = ruleRaw.specificTime
+            , timeIntervalUnit = ruleRaw.timeIntervalUnit
+            , timeInterval = ruleRaw.timeInterval
+            , ruleParts = List.map .values ruleRaw.ruleParts
+            }
+
+        rulesRaw =
+            List.map (.values >> rulePartsRaw) detailsRaw.rules
+
+        title =
+            Form.Value.raw detailsRaw.title
+
+        description =
+            Just <| valueWithDefault detailsRaw.description ""
+
+        startTime =
+            detailsRaw.startTime
+                |> Form.Value.raw
+                |> Maybe.andThen
+                    (dateStringToTime model.timeZone model.timeNow >> Result.toMaybe)
+
+        endTime =
+            valueWithDefault detailsRaw.endTime "3000-01-01"
+                |> dateStringToTime model.timeZone model.timeNow
+                |> Result.toMaybe
+
+        --TODO: 3000??
+        firstDayOfWeek =
+            detailsRaw.firstDayOfWeek
+                |> Form.Value.raw
+                |> Maybe.andThen
+                    (stringToWeekday >> Result.toMaybe)
+
+        addRulePartRaw : RulePartRawValues -> Maybe Schedule.RuleParts -> Maybe Schedule.RuleParts
+        addRulePartRaw rulePartRaw ruleParts =
+            let
+                timeUnit =
+                    Form.Value.raw rulePartRaw.timeUnit
+
+                timeUnitValue =
+                    case timeUnit of
+                        Just tUnit ->
+                            case tUnit of
+                                "Day of Week" ->
+                                    Maybe.map
+                                        (\weekday ->
+                                            case weekday of
+                                                Time.Sun ->
+                                                    0
+
+                                                Time.Mon ->
+                                                    1
+
+                                                Time.Tue ->
+                                                    2
+
+                                                Time.Wed ->
+                                                    3
+
+                                                Time.Thu ->
+                                                    4
+
+                                                Time.Fri ->
+                                                    5
+
+                                                Time.Sat ->
+                                                    6
+                                        )
+                                        (Maybe.andThen
+                                            (stringToWeekday >> Result.toMaybe)
+                                            (Form.Value.raw <| rulePartRaw.timeUnitValue)
+                                        )
+
+                                _ ->
+                                    Maybe.andThen String.toInt (Form.Value.raw <| rulePartRaw.timeUnitValue)
+
+                        Nothing ->
+                            Nothing
+            in
+            Maybe.andThen
+                (\rPs ->
+                    Maybe.andThen
+                        (\tUnit ->
+                            Maybe.andThen
+                                (\tValue ->
+                                    case tUnit of
+                                        "Second of Minute" ->
+                                            Just { rPs | secondOfMinute = tValue :: rPs.secondOfMinute }
+
+                                        "Minute of Hour" ->
+                                            Just { rPs | minuteOfHour = tValue :: rPs.minuteOfHour }
+
+                                        "Hour of Day" ->
+                                            Just { rPs | hourOfDay = tValue :: rPs.hourOfDay }
+
+                                        "Day of Week" ->
+                                            Just { rPs | dayOfWeek = tValue :: rPs.dayOfWeek }
+
+                                        "Day of Month" ->
+                                            Just { rPs | dayOfMonth = tValue :: rPs.dayOfMonth }
+
+                                        "Day of Year" ->
+                                            Just { rPs | dayOfYear = tValue :: rPs.dayOfYear }
+
+                                        "Week of Month" ->
+                                            Just { rPs | weekOfMonth = tValue :: rPs.weekOfMonth }
+
+                                        "Week of Year" ->
+                                            Just { rPs | weekOfYear = tValue :: rPs.weekOfYear }
+
+                                        "Month of Year" ->
+                                            Just { rPs | monthOfYear = tValue :: rPs.monthOfYear }
+
+                                        "Year" ->
+                                            Just { rPs | year = tValue :: rPs.year }
+
+                                        _ ->
+                                            Nothing
+                                )
+                                timeUnitValue
+                        )
+                        timeUnit
+                )
+                ruleParts
+
+        ruleRawToRule ruleRaw =
+            Maybe.andThen
+                (\isPeriodic ->
+                    if isPeriodic then
+                        let
+                            ruleParts =
+                                List.foldl
+                                    addRulePartRaw
+                                    (Just
+                                        { secondOfMinute = []
+                                        , minuteOfHour = []
+                                        , hourOfDay = []
+                                        , dayOfWeek = []
+                                        , dayOfMonth = []
+                                        , dayOfYear = []
+                                        , weekOfMonth = []
+                                        , weekOfYear = []
+                                        , monthOfYear = []
+                                        , year = []
+                                        }
+                                    )
+                                    ruleRaw.ruleParts
+
+                            timeInterval =
+                                Maybe.map round (Form.Value.raw ruleRaw.timeInterval)
+
+                            timeUnit =
+                                Form.Value.raw ruleRaw.timeIntervalUnit
+                        in
+                        Maybe.andThen
+                            (\rPs ->
+                                Maybe.andThen
+                                    (\tInterval ->
+                                        Maybe.andThen
+                                            (\tUnit ->
+                                                case tUnit of
+                                                    "Minutes" ->
+                                                        Just (Schedule.Minutely tInterval rPs)
+
+                                                    "Hours" ->
+                                                        Just (Schedule.Hourly tInterval rPs)
+
+                                                    "Days" ->
+                                                        Just (Schedule.Daily tInterval rPs)
+
+                                                    "Weeks" ->
+                                                        Just (Schedule.Weekly tInterval rPs)
+
+                                                    "Months" ->
+                                                        Just (Schedule.Monthly tInterval rPs)
+
+                                                    "Years" ->
+                                                        Just (Schedule.Yearly tInterval rPs)
+
+                                                    _ ->
+                                                        Nothing
+                                            )
+                                            timeUnit
+                                    )
+                                    timeInterval
+                            )
+                            ruleParts
+
+                    else
+                        Maybe.andThen
+                            (dateStringToTime model.timeZone model.timeNow
+                                >> Result.toMaybe
+                                >> Maybe.map Schedule.SpecificTime
+                            )
+                            (Form.Value.raw ruleRaw.specificTime)
+                )
+                (Form.Value.raw ruleRaw.isPeriodic)
+
+        rulesWithMaybes =
+            List.map ruleRawToRule rulesRaw
+
+        rules =
+            if
+                List.any
+                    (\maybeRule ->
+                        case maybeRule of
+                            Nothing ->
+                                True
+
+                            _ ->
+                                False
+                    )
+                    rulesWithMaybes
+            then
+                Nothing
+
+            else
+                Just (List.filterMap identity rulesWithMaybes)
+
+        schedule =
+            Maybe.map5 Schedule.Schedule rules startTime endTime (Just model.timeZone) firstDayOfWeek
+    in
+    Maybe.map3 Task title description schedule
 
 
 resetInputs : Model -> Model

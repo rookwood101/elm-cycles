@@ -443,26 +443,6 @@ type alias RulePart =
     List Int
 
 
-
--- TODO: is it ok that it's 0 based for some and 1 for others?
--- TODO: validate rule parts as well as sorting
---sortRuleParts : RuleParts -> SortedRuleParts
---sortRuleParts ruleParts time schedule =
---    SortedRuleParts
---        { secondOfMinute = sortRulePart (TimeInt.toSecond time) ruleParts.secondOfMinute
---        , minuteOfHour = sortRulePart (TimeInt.toMinute time) ruleParts.minuteOfHour
---        , hourOfDay = sortRulePart (TimeInt.toHour time) ruleParts.hourOfDay
---        , dayOfWeek = sortRulePart (TimeInt.toWeekday time) ruleParts.dayOfWeek
---        , dayOfMonth = sortRulePart (TimeInt.toMonthDay time) ruleParts.dayOfMonth
---        , dayOfYear = sortRulePart (TimeInt.toYearDay time) ruleParts.dayOfYear
---        , weekOfMonth = sortRulePart (TimeInt.toMonthWeek time schedule.firstDayOfWeek) ruleParts.weekOfMonth
---        , weekOfYear = sortRulePart (TimeInt.toYearWeek time schedule.firstDayOfWeek) ruleParts.weekOfYear
---        , monthOfYear = sortRulePart (TimeInt.toMonth time) ruleParts.monthOfYear
---        , year = sortRulePart (TimeInt.toYear time) ruleParts.year
---        }
---
-
-
 sortRulePart : Int -> List Int -> Bool -> List Int
 sortRulePart partition rulePart discardLesserUnits =
     rulePart
