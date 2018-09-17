@@ -156,6 +156,9 @@ type Msg
     | AddRulePart Int
     | RemoveRule Int
     | RemoveRulePart Int Int
+    | TaskFormOutput Task
+    | RuleFormOutput Rule
+    | RulePartFormOutput TimeUnit Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -236,53 +239,38 @@ update msg model =
 
         NewAddTask ->
             let
+                rulePartsResults ruleIndex rule =
+                    List.map (.values >> Form.fill (rulePartForm model ruleIndex) >> .result) rule.values.ruleParts
+
                 taskDetailsResult =
                     (Form.fill (taskDetailsForm model) model.taskRaw.values).result
 
                 taskRulesResults =
                     List.map (.values >> Form.fill (taskRuleForm model) >> .result) model.taskRaw.values.rules
 
-                rulePartsResults ruleIndex rule =
-                    List.map (.values >> Form.fill (rulePartForm model ruleIndex) >> .result) rule.values.ruleParts
-
-                taskRulePartsResults : List (Result ( Form.Error.Error, List Form.Error.Error ) Msg)
                 taskRulePartsResults =
-                    List.concat <| List.indexedMap rulePartsResults model.taskRaw.values.rules
+                    List.indexedMap rulePartsResults model.taskRaw.values.rules
 
-                resultIsOk r =
-                    case r of
-                        Ok _ ->
-                            True
+                ruleParts : Maybe (List Schedule.RulePart)
+                ruleParts =
+                    List.foldr
+                        (\maybeRulePart l ->
+                            case maybeL of
+                                Just l ->
+                                    case maybeRulePart of
+                                        Just rulePart ->
+                                            rulePart :: l
 
-                        _ ->
-                            False
+                                        Nothing ->
+                                            Nothing
 
-                listAllOk =
-                    List.all resultIsOk
+                                Nothing ->
+                                    Nothing
+                        )
+                        (Just [])
+                        taskRulePartsResults
             in
-            if resultIsOk taskDetailsResult && listAllOk taskRulesResults && listAllOk taskRulePartsResults then
-                --( { model | isFormValid = True }, Cmd.none )
-                ( { model
-                    | isFormValid = True
-                    , tasks =
-                        case makeTaskNew model of
-                            Just task ->
-                                task :: model.tasks
-
-                            Nothing ->
-                                let
-                                    debug =
-                                        Debug.log "couldn't create task" model
-                                in
-                                model.tasks
-
-                    --                    , taskRaw = blankTaskForm
-                  }
-                , Cmd.none
-                )
-
-            else
-                ( { model | isFormValid = False }, Cmd.none )
+            Nothing
 
         AddRule ->
             ( model.taskRaw.values.rules
@@ -723,31 +711,158 @@ dateStringToTime zone time dateString =
     Result.mapError (\_ -> "Invalid date string") <| Iso8601.toTime <| dateString ++ "T00:00:00" ++ zoneOffsetString
 
 
-stringToWeekday value =
-    case value of
-        "Monday" ->
-            Ok Time.Mon
+stringToWeekday =
+    Dict.fromList
+        [ ( "Monday", Time.Mon )
+        , ( "Tuesday", Time.Tue )
+        , ( "Wednesday", Time.Wed )
+        , ( "Thursday", Time.Thu )
+        , ( "Friday", Time.Fri )
+        , ( "Saturday", Time.Sat )
+        , ( "Sunday", Time.Sun )
+        ]
 
-        "Tuesday" ->
-            Ok Time.Tue
 
-        "Wednesday" ->
-            Ok Time.Wed
+stringToMonth =
+    Dict.fromList
+        [ ( "January", Time.Jan )
+        , ( "February", Time.Feb )
+        , ( "March", Time.Mar )
+        , ( "April", Time.Apr )
+        , ( "May", Time.May )
+        , ( "June", Time.Jun )
+        , ( "July", Time.Jul )
+        , ( "August", Time.Aug )
+        , ( "September", Time.Sep )
+        , ( "October", Time.Oct )
+        , ( "November", Time.Nov )
+        , ( "December", Time.Dec )
+        ]
 
-        "Thursday" ->
-            Ok Time.Thu
 
-        "Friday" ->
-            Ok Time.Fri
+type TimeIntervalUnit
+    = Minutely
+    | Hourly
+    | Daily
+    | Weekly
+    | Monthly
+    | Yearly
 
-        "Saturday" ->
-            Ok Time.Sat
 
-        "Sunday" ->
-            Ok Time.Sun
+stringToTimeIntervalUnit =
+    Dict.fromList
+        [ ( "Minutes", Minutely )
+        , ( "Hours", Hourly )
+        , ( "Days", Daily )
+        , ( "Weeks", Weekly )
+        , ( "Months", Monthly )
+        , ( "Years", Yearly )
+        ]
 
-        _ ->
-            Err "Invalid day of week"
+
+type TimeUnit
+    = SecondOfMinute
+    | MinuteOfHour
+    | HourOfDay
+    | DayOfWeek
+    | DayOfMonth
+    | DayOfYear
+    | WeekOfMonth
+    | WeekOfYear
+    | MonthOfYear
+    | Year
+
+
+stringToTimeUnit =
+    Dict.fromList
+        [ ( "Second of Minute", SecondOfMinute )
+        , ( "Minute of Hour", MinuteOfHour )
+        , ( "Hour of Day", HourOfDay )
+        , ( "Day of Week", DayOfWeek )
+        , ( "Day of Month", DayOfMonth )
+        , ( "Day of Year", DayOfYear )
+        , ( "Week of Month", WeekOfMonth )
+        , ( "Week of Year", WeekOfYear )
+        , ( "Month of Year", MonthOfYear )
+        , ( "Year", Year )
+        ]
+
+
+type TimeUnitValue
+    = IntMinMax Int Int
+    | Weekday
+    | Month
+    | IntAll
+
+
+timeUnitToParser firstDayOfWeek timeUnit =
+    let
+        intMinMaxParse min max value =
+            Result.fromMaybe "Must be an integer" (String.toInt value)
+                |> Result.andThen
+                    (\valueInt ->
+                        if valueInt >= min && valueInt <= max then
+                            Ok valueInt
+
+                        else
+                            Err "Integer must be in range"
+                    )
+
+        getParserAndOptions min max =
+            ( intMinMaxParse min max, pairList <| List.range 0 59 )
+    in
+    case timeUnit of
+        SecondOfMinute ->
+            getParserAndOptions 0 59
+
+        MinuteOfHour ->
+            getParserAndOptions 0 59
+
+        HourOfDay ->
+            getParserAndOptions 0 23
+
+        DayOfWeek ->
+            ( intMinMaxParse 0 6, Dict.toList <| Dict.map (\_ weekday -> String.fromInt <| TimeUtil.weekdayToInt firstDayOfWeek weekday) stringToWeekday )
+
+        DayOfMonth ->
+            getParserAndOptions 1 31
+
+        DayOfYear ->
+            getParserAndOptions 1 366
+
+        WeekOfMonth ->
+            getParserAndOptions 0 5
+
+        WeekOfYear ->
+            getParserAndOptions 0 53
+
+        MonthOfYear ->
+            ( intMinMaxParse 1 12, Dict.toList <| Dict.map (\_ month -> String.fromInt <| TimeUtil.monthToInt month) stringToMonth )
+
+        Year ->
+            getParserAndOptions 2000 2200
+
+
+createPeriodicRule : Int -> TimeIntervalUnit -> (Schedule.RuleParts -> Schedule.Rule)
+createPeriodicRule timeInterval timeIntervalUnit =
+    case timeIntervalUnit of
+        Minutely ->
+            Schedule.Minutely timeInterval
+
+        Hourly ->
+            Schedule.Hourly timeInterval
+
+        Daily ->
+            Schedule.Daily timeInterval
+
+        Weekly ->
+            Schedule.Weekly timeInterval
+
+        Monthly ->
+            Schedule.Monthly timeInterval
+
+        Yearly ->
+            Schedule.Yearly timeInterval
 
 
 newTaskForm : Model -> Html Msg
@@ -814,6 +929,11 @@ attributesHelper label placeholder =
     }
 
 
+pairList : List a -> List ( a, a )
+pairList =
+    List.map (\value -> ( value, value ))
+
+
 taskDetailsForm model =
     let
         title =
@@ -825,12 +945,13 @@ taskDetailsForm model =
                 }
 
         description =
-            Form.textField
-                { parser = Ok
-                , value = .description
-                , update = \value values -> { values | description = value }
-                , attributes = attributesHelper "Description" "Task Description"
-                }
+            Form.optional <|
+                Form.textField
+                    { parser = Ok
+                    , value = .description
+                    , update = \value values -> { values | description = value }
+                    , attributes = attributesHelper "Description" "Task Description"
+                    }
 
         startTime =
             Form.textField
@@ -851,17 +972,22 @@ taskDetailsForm model =
 
         firstDayOfWeek =
             Form.selectField
-                { parser = stringToWeekday
+                { parser = \value -> Dict.get value stringToWeekday |> Result.fromMaybe "Invalid day of week"
                 , value = .firstDayOfWeek
                 , update = \value values -> { values | firstDayOfWeek = value }
                 , attributes =
                     { label = "First Day of Week"
                     , placeholder = ""
-                    , options = [ ( "Sunday", "Sunday" ), ( "Monday", "Monday" ) ]
+                    , options = pairList <| Dict.keys stringToWeekday
                     }
                 }
     in
-    Form.succeed (\_ _ _ _ _ -> Null)
+    Form.succeed
+        (\title description startTime endTime firstDayOfWeek ->
+            Schedule.Schedule [] startTime (Maybe.withDefault (dateStringToTime "3000-01-01") endTime) model.timeZone firstDayOfWeek
+                |> Task title (Maybe.withDefault "" description)
+                |> TaskFormOutput
+        )
         |> Form.append title
         |> Form.append description
         |> Form.append startTime
@@ -891,22 +1017,19 @@ taskRuleForm model =
 
         timeIntervalUnit =
             Form.selectField
-                { parser = Ok
+                { parser = \value -> Dict.get value stringToTimeIntervalUnit |> Result.fromMaybe "Invalid time period"
                 , value = .timeIntervalUnit
                 , update = \value values -> { values | timeIntervalUnit = value }
                 , attributes =
                     { label = ""
                     , placeholder = "Time Period"
-                    , options =
-                        List.map
-                            (\value -> ( value, value ))
-                            [ "Minute", "Hour", "Day", "Week", "Month", "Year" ]
+                    , options = pairList <| Dict.keys stringToTimeIntervalUnit
                     }
                 }
 
         timeInterval =
             Form.numberField
-                { parser = Ok
+                { parser = round >> Ok
                 , value = .timeInterval
                 , update = \value values -> { values | timeInterval = value }
                 , attributes =
@@ -922,71 +1045,45 @@ taskRuleForm model =
         |> Form.andThen
             (\isPeriodic_ ->
                 if isPeriodic_ then
-                    Form.succeed (\_ _ -> Null)
+                    Form.succeed (createPeriodicRule >> RuleFormOutput)
                         |> Form.append timeInterval
                         |> Form.append timeIntervalUnit
-                        |> Form.group
 
                 else
-                    Form.succeed (\_ -> Null)
+                    Form.succeed (Schedule.SpecificTime >> RuleFormOutput)
                         |> Form.append specificTime
             )
 
 
 rulePartForm model ruleIndex =
     let
-        timeUnitsToOptions =
-            [ ( "Second of Minute", List.map String.fromInt (List.range 0 59) )
-            , ( "Minute of Hour", List.map String.fromInt (List.range 0 59) )
-            , ( "Hour of Day", List.map String.fromInt (List.range 0 23) )
-            , ( "Day of Week", [ "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" ] )
-            , ( "Day of Month", List.map String.fromInt (List.range 1 31) )
-            , ( "Day of Year", List.map String.fromInt (List.range 1 366) )
-            , ( "Week of Month", List.map String.fromInt (List.range 0 5) )
-            , ( "Week of Year", List.map String.fromInt (List.range 0 53) )
-            , ( "Month of Year", List.map String.fromInt (List.range 1 12) )
-            , ( "Year", List.map String.fromInt (List.range 1970 2100) )
-            ]
-
-        timeUnitsToOptionsDict =
-            Dict.fromList timeUnitsToOptions
-
-        timeUnitValue options =
+        timeUnitValue ( parser, options ) =
             Form.selectField
-                { parser = Ok
+                { parser = parser
                 , value = .timeUnitValue
                 , update = \value values -> { values | timeUnitValue = value }
                 , attributes =
                     { label = "On"
                     , placeholder = ""
-                    , options = List.map (\value -> ( value, value )) options
+                    , options = options
                     }
                 }
 
-        timeUnit options =
+        timeUnit =
             Form.selectField
-                { parser = Ok
+                { parser = \value -> Dict.get value stringToTimeUnit |> Result.fromMaybe "Invalid time unit"
                 , value = .timeUnit
                 , update = \value values -> { values | timeUnit = value }
                 , attributes =
                     { label = ""
                     , placeholder = "Time Unit"
-                    , options = List.map (\value -> ( value, value )) options
+                    , options = pairList <| Dict.keys stringToTimeUnit
                     }
                 }
     in
-    timeUnit (List.map (\( key, value ) -> key) timeUnitsToOptions)
+    timeUnit
         |> Form.andThen
             (\timeUnit_ ->
-                let
-                    maybeOptions =
-                        Dict.get timeUnit_ timeUnitsToOptionsDict
-                in
-                case maybeOptions of
-                    Just options ->
-                        Form.succeed (\_ -> Null)
-                            |> Form.append (timeUnitValue options)
-
-                    Nothing ->
-                        Debug.todo "invalid timeunit"
+                Form.succeed (RulePartFormOutput timeUnit_)
+                    |> Form.append (timeUnitValue <| timeUnitToParser Time.Mon timeUnit_)
             )
