@@ -114,7 +114,7 @@ weekdayToInt firstDayOfWeek weekday =
                 Time.Sat ->
                     6
     in
-    modBy (unshifted + offset) 7
+    modBy 7 (unshifted + offset)
 
 
 monthToInt : Time.Month -> Int

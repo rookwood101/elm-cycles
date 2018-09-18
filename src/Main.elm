@@ -3,7 +3,6 @@ module Main exposing (main)
 import Browser
 import DateFormat
 import Debug
-import Dict
 import Form
 import Form.Base.TextField
 import Form.Error
@@ -15,10 +14,12 @@ import Html.Attributes as Attributes
 import Html.Events as Events
 import Iso8601
 import List.Extra
+import OrderedDict as Dict
 import Schedule
 import Task
 import Time
 import TimeConstruct
+import TimeUtil
 
 
 main =
@@ -157,7 +158,7 @@ type Msg
     | RemoveRule Int
     | RemoveRulePart Int Int
     | TaskFormOutput Task
-    | RuleFormOutput Rule
+    | RuleFormOutput (Schedule.RuleParts -> Schedule.Rule)
     | RulePartFormOutput TimeUnit Int
 
 
@@ -239,38 +240,53 @@ update msg model =
 
         NewAddTask ->
             let
-                rulePartsResults ruleIndex rule =
-                    List.map (.values >> Form.fill (rulePartForm model ruleIndex) >> .result) rule.values.ruleParts
-
                 taskDetailsResult =
                     (Form.fill (taskDetailsForm model) model.taskRaw.values).result
 
                 taskRulesResults =
                     List.map (.values >> Form.fill (taskRuleForm model) >> .result) model.taskRaw.values.rules
 
+                rulePartsResults ruleIndex rule =
+                    List.map (.values >> Form.fill (rulePartForm model ruleIndex) >> .result) rule.values.ruleParts
+
+                taskRulePartsResults : List (Result ( Form.Error.Error, List Form.Error.Error ) Msg)
                 taskRulePartsResults =
-                    List.indexedMap rulePartsResults model.taskRaw.values.rules
+                    List.concat <| List.indexedMap rulePartsResults model.taskRaw.values.rules
 
-                ruleParts : Maybe (List Schedule.RulePart)
-                ruleParts =
-                    List.foldr
-                        (\maybeRulePart l ->
-                            case maybeL of
-                                Just l ->
-                                    case maybeRulePart of
-                                        Just rulePart ->
-                                            rulePart :: l
+                resultIsOk r =
+                    case r of
+                        Ok _ ->
+                            True
 
-                                        Nothing ->
-                                            Nothing
+                        _ ->
+                            False
 
-                                Nothing ->
-                                    Nothing
-                        )
-                        (Just [])
-                        taskRulePartsResults
+                listAllOk =
+                    List.all resultIsOk
             in
-            Nothing
+            if resultIsOk taskDetailsResult && listAllOk taskRulesResults && listAllOk taskRulePartsResults then
+                --( { model | isFormValid = True }, Cmd.none )
+                ( { model
+                    | isFormValid = True
+                    , tasks =
+                        case makeTaskNew model of
+                            Just task ->
+                                task :: model.tasks
+
+                            Nothing ->
+                                let
+                                    debug =
+                                        Debug.log "couldn't create task" model
+                                in
+                                model.tasks
+
+                    --                    , taskRaw = blankTaskForm
+                  }
+                , Cmd.none
+                )
+
+            else
+                ( { model | isFormValid = False }, Cmd.none )
 
         AddRule ->
             ( model.taskRaw.values.rules
@@ -334,6 +350,15 @@ update msg model =
 
                 Nothing ->
                     ( model, Cmd.none )
+
+        TaskFormOutput _ ->
+            ( model, Cmd.none )
+
+        RuleFormOutput _ ->
+            ( model, Cmd.none )
+
+        RulePartFormOutput _ _ ->
+            ( model, Cmd.none )
 
 
 
@@ -419,7 +444,7 @@ makeTaskNew model =
             detailsRaw.firstDayOfWeek
                 |> Form.Value.raw
                 |> Maybe.andThen
-                    (stringToWeekday >> Result.toMaybe)
+                    (\s -> Dict.get s stringToWeekday)
 
         addRulePartRaw : RulePartRawValues -> Maybe Schedule.RuleParts -> Maybe Schedule.RuleParts
         addRulePartRaw rulePartRaw ruleParts =
@@ -428,44 +453,7 @@ makeTaskNew model =
                     Form.Value.raw rulePartRaw.timeUnit
 
                 timeUnitValue =
-                    case timeUnit of
-                        Just tUnit ->
-                            case tUnit of
-                                "Day of Week" ->
-                                    Maybe.map
-                                        (\weekday ->
-                                            case weekday of
-                                                Time.Sun ->
-                                                    0
-
-                                                Time.Mon ->
-                                                    1
-
-                                                Time.Tue ->
-                                                    2
-
-                                                Time.Wed ->
-                                                    3
-
-                                                Time.Thu ->
-                                                    4
-
-                                                Time.Fri ->
-                                                    5
-
-                                                Time.Sat ->
-                                                    6
-                                        )
-                                        (Maybe.andThen
-                                            (stringToWeekday >> Result.toMaybe)
-                                            (Form.Value.raw <| rulePartRaw.timeUnitValue)
-                                        )
-
-                                _ ->
-                                    Maybe.andThen String.toInt (Form.Value.raw <| rulePartRaw.timeUnitValue)
-
-                        Nothing ->
-                            Nothing
+                    Maybe.andThen String.toInt (Form.Value.raw <| rulePartRaw.timeUnitValue)
             in
             Maybe.andThen
                 (\rPs ->
@@ -809,7 +797,7 @@ timeUnitToParser firstDayOfWeek timeUnit =
                     )
 
         getParserAndOptions min max =
-            ( intMinMaxParse min max, pairList <| List.range 0 59 )
+            ( intMinMaxParse min max, pairList <| List.map String.fromInt <| List.range 0 59 )
     in
     case timeUnit of
         SecondOfMinute ->
@@ -822,7 +810,7 @@ timeUnitToParser firstDayOfWeek timeUnit =
             getParserAndOptions 0 23
 
         DayOfWeek ->
-            ( intMinMaxParse 0 6, Dict.toList <| Dict.map (\_ weekday -> String.fromInt <| TimeUtil.weekdayToInt firstDayOfWeek weekday) stringToWeekday )
+            ( intMinMaxParse 0 6, List.map (\( x, y ) -> ( y, x )) <| Dict.toList <| Dict.map (\_ weekday -> String.fromInt <| TimeUtil.weekdayToInt firstDayOfWeek weekday) stringToWeekday )
 
         DayOfMonth ->
             getParserAndOptions 1 31
@@ -837,10 +825,15 @@ timeUnitToParser firstDayOfWeek timeUnit =
             getParserAndOptions 0 53
 
         MonthOfYear ->
-            ( intMinMaxParse 1 12, Dict.toList <| Dict.map (\_ month -> String.fromInt <| TimeUtil.monthToInt month) stringToMonth )
+            ( intMinMaxParse 1 12, List.map (\( x, y ) -> ( y, x )) <| Dict.toList <| Dict.map (\_ month -> String.fromInt <| TimeUtil.monthToInt month) stringToMonth )
 
         Year ->
             getParserAndOptions 2000 2200
+
+
+createSpecificTimeRule : Schedule.Rule -> (Schedule.RuleParts -> Schedule.Rule)
+createSpecificTimeRule rule =
+    \ruleParts -> rule
 
 
 createPeriodicRule : Int -> TimeIntervalUnit -> (Schedule.RuleParts -> Schedule.Rule)
@@ -889,24 +882,43 @@ newTaskForm model =
                             }
                             (taskRuleForm model)
                             taskRuleRaw
-                        , div [ Attributes.class "rule-parts" ]
-                            (List.indexedMap
-                                (\rulePartIndex rulePartRaw ->
-                                    div [ Attributes.class "rule-part", Attributes.style "border" "1px solid red", Attributes.style "margin" "10px", Attributes.style "padding" "10px" ]
-                                        [ button [ Events.onClick (RemoveRulePart ruleIndex rulePartIndex), Attributes.style "float" "right" ] [ text "-" ]
-                                        , FormCustomView.asHtmlCustom
-                                            { onChange = UpdateRulePart ruleIndex rulePartIndex
-                                            , action = ""
-                                            , loading = ""
-                                            , validation = Form.View.ValidateOnBlur
-                                            }
-                                            (rulePartForm model ruleIndex)
-                                            rulePartRaw
-                                        ]
+                        , case
+                            Maybe.andThen
+                                (\rule ->
+                                    Maybe.andThen
+                                        (\isPeriodic_ ->
+                                            if isPeriodic_ then
+                                                Just True
+
+                                            else
+                                                Nothing
+                                        )
+                                        (Form.Value.raw rule.values.isPeriodic)
                                 )
-                                taskRuleRaw.values.ruleParts
-                                ++ [ button [ Events.onClick (AddRulePart ruleIndex), Attributes.style "margin-left" "10px" ] [ text "Add Rule Part" ] ]
-                            )
+                                (List.Extra.getAt ruleIndex model.taskRaw.values.rules)
+                          of
+                            Nothing ->
+                                text ""
+
+                            Just _ ->
+                                div [ Attributes.class "rule-parts" ]
+                                    (List.indexedMap
+                                        (\rulePartIndex rulePartRaw ->
+                                            div [ Attributes.class "rule-part", Attributes.style "border" "1px solid red", Attributes.style "margin" "10px", Attributes.style "padding" "10px" ]
+                                                [ button [ Events.onClick (RemoveRulePart ruleIndex rulePartIndex), Attributes.style "float" "right" ] [ text "-" ]
+                                                , FormCustomView.asHtmlCustom
+                                                    { onChange = UpdateRulePart ruleIndex rulePartIndex
+                                                    , action = ""
+                                                    , loading = ""
+                                                    , validation = Form.View.ValidateOnBlur
+                                                    }
+                                                    (rulePartForm model ruleIndex)
+                                                    rulePartRaw
+                                                ]
+                                        )
+                                        taskRuleRaw.values.ruleParts
+                                        ++ [ button [ Events.onClick (AddRulePart ruleIndex), Attributes.style "margin-left" "10px" ] [ text "Add Rule Part" ] ]
+                                    )
                         ]
                 )
                 model.taskRaw.values.rules
@@ -954,7 +966,7 @@ taskDetailsForm model =
                     }
 
         startTime =
-            Form.textField
+            Form.dateField
                 { parser = dateStringToTime model.timeZone model.timeNow
                 , value = .startTime
                 , update = \value values -> { values | startTime = value }
@@ -963,7 +975,7 @@ taskDetailsForm model =
 
         endTime =
             Form.optional <|
-                Form.textField
+                Form.dateField
                     { parser = dateStringToTime model.timeZone model.timeNow
                     , value = .endTime
                     , update = \value values -> { values | endTime = value }
@@ -983,9 +995,9 @@ taskDetailsForm model =
                 }
     in
     Form.succeed
-        (\title description startTime endTime firstDayOfWeek ->
-            Schedule.Schedule [] startTime (Maybe.withDefault (dateStringToTime "3000-01-01") endTime) model.timeZone firstDayOfWeek
-                |> Task title (Maybe.withDefault "" description)
+        (\title_ description_ startTime_ endTime_ firstDayOfWeek_ ->
+            Schedule.Schedule [] startTime_ (Maybe.withDefault (Time.millisToPosix 32503680000) endTime_) model.timeZone firstDayOfWeek_
+                |> Task title_ (Maybe.withDefault "" description_)
                 |> TaskFormOutput
         )
         |> Form.append title
@@ -1007,7 +1019,7 @@ taskRuleForm model =
                 }
 
         specificTime =
-            Form.textField
+            Form.dateField
                 { parser = dateStringToTime model.timeZone model.timeNow
                 , value = .specificTime
                 , update = \value values -> { values | specificTime = value }
@@ -1045,12 +1057,12 @@ taskRuleForm model =
         |> Form.andThen
             (\isPeriodic_ ->
                 if isPeriodic_ then
-                    Form.succeed (createPeriodicRule >> RuleFormOutput)
+                    Form.succeed (\interval unit -> RuleFormOutput <| createPeriodicRule interval unit)
                         |> Form.append timeInterval
                         |> Form.append timeIntervalUnit
 
                 else
-                    Form.succeed (Schedule.SpecificTime >> RuleFormOutput)
+                    Form.succeed (Schedule.SpecificTime >> createSpecificTimeRule >> RuleFormOutput)
                         |> Form.append specificTime
             )
 
