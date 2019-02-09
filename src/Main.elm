@@ -797,7 +797,7 @@ timeUnitToParser firstDayOfWeek timeUnit =
                     )
 
         getParserAndOptions min max =
-            ( intMinMaxParse min max, pairList <| List.map String.fromInt <| List.range 0 59 )
+            ( intMinMaxParse min max, pairList <| List.map String.fromInt <| List.range min max )
     in
     case timeUnit of
         SecondOfMinute ->
@@ -819,7 +819,7 @@ timeUnitToParser firstDayOfWeek timeUnit =
             getParserAndOptions 1 366
 
         WeekOfMonth ->
-            getParserAndOptions 0 5
+            getParserAndOptions 1 6
 
         WeekOfYear ->
             getParserAndOptions 0 53

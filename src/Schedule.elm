@@ -16,6 +16,34 @@ type alias Schedule =
     }
 
 
+type Rule
+    = Minutely Interval RuleParts
+    | Hourly Interval RuleParts
+    | Daily Interval RuleParts
+    | Weekly Interval RuleParts
+    | Monthly Interval RuleParts
+    | Yearly Interval RuleParts
+    | SpecificTime Time.Posix
+
+
+type alias Interval =
+    Int
+
+
+type alias RuleParts =
+    { secondOfMinute : List Int -- 0 to 59
+    , minuteOfHour : List Int -- 0 to 59
+    , hourOfDay : List Int -- 0 to 59
+    , dayOfWeek : List Int -- 0 to 6
+    , dayOfMonth : List Int -- 1 to 31
+    , dayOfYear : List Int -- 1 to 366
+    , weekOfMonth : List Int -- 0 to 5
+    , weekOfYear : List Int -- 0 to 53
+    , monthOfYear : List Int -- 1 to 12
+    , year : List Int -- 1970 to 9999
+    }
+
+
 nextRecurrenceAfter : Time.Posix -> Schedule -> Maybe Time.Posix
 nextRecurrenceAfter time schedule =
     Maybe.map Time.millisToPosix
@@ -154,20 +182,6 @@ type UntilRule
 
 
 --    | UntilCount Int
-
-
-type alias Interval =
-    Int
-
-
-type Rule
-    = Minutely Interval RuleParts
-    | Hourly Interval RuleParts
-    | Daily Interval RuleParts
-    | Weekly Interval RuleParts
-    | Monthly Interval RuleParts
-    | Yearly Interval RuleParts
-    | SpecificTime Time.Posix
 
 
 type IntervalUnit
@@ -423,24 +437,6 @@ shiftAndRoundTimeByWeekOfYear firstDayOfWeek zone time desiredWeekOfYear =
 
     else
         shiftAndRoundTimeByWeekOfYear firstDayOfWeek zone (Time.millisToPosix ((27 * day) + Time.posixToMillis time)) desiredWeekOfYear
-
-
-type alias RuleParts =
-    { secondOfMinute : List Int -- 0 to 59
-    , minuteOfHour : List Int -- 0 to 59
-    , hourOfDay : List Int -- 0 to 59
-    , dayOfWeek : List Int -- 0 to 6
-    , dayOfMonth : List Int -- 1 to 31
-    , dayOfYear : List Int -- 1 to 366
-    , weekOfMonth : List Int -- 0 to 5
-    , weekOfYear : List Int -- 0 to 53
-    , monthOfYear : List Int -- 1 to 12
-    , year : List Int -- 1970 to 9999
-    }
-
-
-type alias RulePart =
-    List Int
 
 
 sortRulePart : Int -> List Int -> Bool -> List Int

@@ -1,0 +1,4 @@
+ * Can't find times on 6th week of month
+ * Week of year sometimes results in badly constructed dates AND sometimes in wrong dates
+ * Month of year - if the calculation crosses over today's date then it never ends
+ * Year restriction is incorrect for past years and freezes on current year
