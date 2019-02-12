@@ -16,6 +16,67 @@ type alias Schedule =
     }
 
 
+
+-- reworking the type api
+
+
+type Rule
+    = SpecificTime Time.Posix
+    | Repeating Interval (List Restriction)
+
+
+type Interval
+    = Minutely Int
+    | Hourly Int
+    | Daily Int
+    | Weekly Int
+    | Monthly Int
+    | Yearly Int
+
+
+type Restriction
+    = SecondOfMinute Int
+    | MinuteOfHour Int
+    | HourOfDay Int
+    | DayOfWeek Int
+    | DayOfMonth Int
+    | DayOfYear Int
+    | WeekOfMonth Int
+    | WeekOfYear Int
+    | MonthOfYear Int
+    | YearOfEternity Int
+
+
+constructInterval : (Int -> Interval) -> Int -> Maybe Interval
+constructInterval constructor value =
+    if value > 0 then
+        Just (constructor value)
+
+    else
+        Nothing
+
+
+constructRestriction : Int -> Int -> (Int -> Restriction) -> Int -> Maybe Restriction
+constructRestriction min max constructor value =
+    if value >= min && value <= max then
+        Just (constructor value)
+
+    else
+        Nothing
+
+secondOfMinute = constructRestriction (Just 0) (Just 59) SecondOfMinute
+minuteOfHour =   constructRestriction (Just 0) (Just 59) MinuteOfHour
+hourOfDay =      constructRestriction (Just 0) (Just 23) HourOfDay
+dayOfWeek =      constructRestriction (Just 1) (Just 7) DayOfWeek -- this is now 1 based
+dayOfMonth =     constructRestriction (Just 1) (Just 31) DayOfMonth
+dayOfYear =      constructRestriction (Just 1) (Just 366) DayOfYear
+weekOfMonth =    constructRestriction (Just 1) (Just 6) WeekOfMonth -- this is now 1 based
+weekOfYear =     constructRestriction (Just 1) (Just 54) WeekOfYear -- this is now 1 based
+monthOfYear =    constructRestriction (Just 1) (Just 12) MonthOfYear
+yearOfEternity = YearOfEternity
+ 
+-- OLD TYPES BELOW
+
 type Rule
     = Minutely Interval RuleParts
     | Hourly Interval RuleParts
@@ -33,7 +94,7 @@ type alias Interval =
 type alias RuleParts =
     { secondOfMinute : List Int -- 0 to 59
     , minuteOfHour : List Int -- 0 to 59
-    , hourOfDay : List Int -- 0 to 59
+    , hourOfDay : List Int -- 0 to 23
     , dayOfWeek : List Int -- 0 to 6
     , dayOfMonth : List Int -- 1 to 31
     , dayOfYear : List Int -- 1 to 366
